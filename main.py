@@ -120,3 +120,6 @@ async def on_ready():
     print('Logged in as', bot.user)
 
 bot.run(config.DISCORD_TOKEN)
+
+
+## TODO: volume slider, queue, auto-delete of files, search function, song info
