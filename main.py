@@ -103,6 +103,14 @@ async def pause(ctx: discord.ApplicationContext):
     else:
         await ctx.respond("No audio is currently playing.")
 
+@bot.slash_command(name="resume", description="Resume the current playback", guild_ids=[248493533537763328, 556956284159524981])
+async def resume(ctx: discord.ApplicationContext):
+    if ctx.voice_client and ctx.voice_client.is_paused():
+        ctx.voice_client.resume()
+        await ctx.respond("Playback resumed.")
+    else:
+        await ctx.respond("No audio is currently paused.")
+
 ##################################################################
 ############################ RUN BOT #############################
 ##################################################################
