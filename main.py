@@ -1,7 +1,6 @@
 import re
 import config
 import discord
-import asyncio
 import yt_dlp as youtube_dl
 import os
 
@@ -36,6 +35,11 @@ async def ping(ctx: discord.ApplicationContext):
 
 BOT_VOLUME = 0.2
 
+def after_playing(error, filename):
+    os.remove(filename)
+    print(f"Finished playing, and removed {filename}!")
+    return
+
 @bot.slash_command(
     name="leave",
     description="Leave the voice channel",
@@ -64,7 +68,7 @@ async def volume(ctx: discord.ApplicationContext, volume: int):
     global BOT_VOLUME
     BOT_VOLUME = float(volume) / 100
     print(BOT_VOLUME)
-    await ctx.respond(f"Changed the volume to {volume}.")
+    await ctx.respond(f"Changed the volume to {volume}%.")
 
 @bot.slash_command(
     name="play",
@@ -133,15 +137,15 @@ async def play(ctx: discord.ApplicationContext, url: str, search_terms: str):
         source = discord.FFmpegPCMAudio(mp3_filename)
         source = discord.PCMVolumeTransformer(source, BOT_VOLUME)
 
-    ctx.voice_client.play(source, after=lambda e: print(f'Finished playing: {e}'))
+    ctx.voice_client.play(source, after=lambda e: after_playing(e, mp3_filename))
     await ctx.respond("Success! Your song is about to be played!")
     await ctx.send(f"Now playing: **{url and info_dict['title'] or info_dict['entries'][0]['title']}** - ({url and info_dict['duration_string'] or info_dict['entries'][0]['duration_string']})")
 
 @bot.slash_command(
-        name="stop",
-        description="Stop the current playback",
-        #guild_ids=[248493533537763328, 556956284159524981]
-        )
+    name="stop",
+    description="Stop the current playback",
+    #guild_ids=[248493533537763328, 556956284159524981]
+    )
 async def stop(ctx: discord.ApplicationContext):
     if ctx.voice_client and ctx.voice_client.is_playing():
         ctx.voice_client.stop()
@@ -150,10 +154,10 @@ async def stop(ctx: discord.ApplicationContext):
         await ctx.respond("No audio is currently playing.")
 
 @bot.slash_command(
-        name="pause",
-        description="Pause the current playback",
-        #guild_ids=[248493533537763328, 556956284159524981]
-        )
+    name="pause",
+    description="Pause the current playback",
+    #guild_ids=[248493533537763328, 556956284159524981]
+    )
 async def pause(ctx: discord.ApplicationContext):
     if ctx.voice_client and ctx.voice_client.is_playing():
         ctx.voice_client.pause()
@@ -162,10 +166,10 @@ async def pause(ctx: discord.ApplicationContext):
         await ctx.respond("No audio is currently playing.")
 
 @bot.slash_command(
-        name="resume",
-        description="Resume the current playback",
-        #guild_ids=[248493533537763328, 556956284159524981]
-        )
+    name="resume",
+    description="Resume the current playback",
+    #guild_ids=[248493533537763328, 556956284159524981]
+    )
 async def resume(ctx: discord.ApplicationContext):
     if ctx.voice_client and ctx.voice_client.is_paused():
         ctx.voice_client.resume()
@@ -184,4 +188,4 @@ async def on_ready():
 bot.run(config.DISCORD_TOKEN)
 
 
-## TODO: volume slider, queue, auto-delete of files, search function, song info
+## TODO: queue
