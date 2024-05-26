@@ -1,3 +1,4 @@
+import asyncio
 import re
 import config
 import discord
@@ -33,12 +34,24 @@ async def ping(ctx: discord.ApplicationContext):
 ######################### MUSIC METHODS ##########################
 ##################################################################
 
-BOT_VOLUME = 0.2
+DEFAULT_BOT_VOLUME = 0.2
+VOLUMES = {}
+SONG_QUEUES = {}
 
 def after_playing(error, filename):
     os.remove(filename)
     print(f"Finished playing, and removed {filename}!")
     return
+
+async def play_next(ctx: discord.ApplicationContext):
+    if not SONG_QUEUES[ctx.guild.id]:
+        return
+    
+    volume = VOLUMES[ctx.guild.id] or DEFAULT_BOT_VOLUME
+
+    next_song = SONG_QUEUES[ctx.guild.id].pop(0)
+    source = await discord.FFmpegOpusAudio.from_probe(next_song['filename'], method='fallback', options=f"-af 'volume={volume}'")
+    ctx.voice_client.play(source, after=lambda e: asyncio.run_coroutine_threadsafe(play_next(ctx), bot.loop))
 
 @bot.slash_command(
     name="leave",
@@ -51,12 +64,11 @@ async def leave(ctx: discord.ApplicationContext):
         await ctx.respond("Left the voice channel.")
     else:
         await ctx.respond("I am not in a voice channel!")
-    return
 
 @bot.slash_command(
     name="volume",
     description="Adjusts the volume (doesn't apply to the current song)",
-    #guild_ids=[248493533537763328, 556956284159524981]
+    guild_ids=[248493533537763328, 556956284159524981]
 )
 @option(
     "volume",
@@ -65,15 +77,13 @@ async def leave(ctx: discord.ApplicationContext):
     max_value=100
 )
 async def volume(ctx: discord.ApplicationContext, volume: int):
-    global BOT_VOLUME
-    BOT_VOLUME = float(volume) / 100
-    print(BOT_VOLUME)
+    VOLUMES[ctx.guild.id] = float(volume) / 100
     await ctx.respond(f"Changed the volume to {volume}%.")
 
 @bot.slash_command(
     name="play",
-    description="Play a YouTube video",
-    #guild_ids=[248493533537763328, 556956284159524981]
+    description="Add a YouTube video to the queue",
+    guild_ids=[248493533537763328, 556956284159524981]
     )
 @option(
     "url", 
@@ -88,6 +98,13 @@ async def volume(ctx: discord.ApplicationContext, volume: int):
     default=''
 )
 async def play(ctx: discord.ApplicationContext, url: str, search_terms: str):
+    guild_id = ctx.guild.id
+    if guild_id not in SONG_QUEUES:
+        SONG_QUEUES[guild_id] = []
+    
+    if guild_id not in VOLUMES:
+        VOLUMES[guild_id] = DEFAULT_BOT_VOLUME
+
     if bool(url) == bool(search_terms):
         await ctx.respond("You need to provide either an URL or search terms.", ephemeral=True)
         return
@@ -96,16 +113,15 @@ async def play(ctx: discord.ApplicationContext, url: str, search_terms: str):
         if ctx.author.voice:
             channel = ctx.author.voice.channel
             await channel.connect()
-            await ctx.send("Joined voice channel!")
         else:
-            await ctx.respond("You are not in a voice channel!")
+            await ctx.respond("You are not in a voice channel!", ephemeral=True)
             return
     
     if url and re.search("^(?:https?:\/\/(?:www\.)?)?(?:(?:youtube\.com)|(?:youtu\.be))", url) is None:
         await ctx.respond("Currently, only YouTube is supported.", ephemeral=True)
         return 
 
-    await ctx.defer(ephemeral=True)
+    await ctx.defer()
 
     ydl_opts = {
         'format': 'bestaudio/best',
@@ -114,42 +130,63 @@ async def play(ctx: discord.ApplicationContext, url: str, search_terms: str):
             'preferredcodec': 'mp3',
             'preferredquality': '192',
         }],
+        'noplaylist': True,
+        'playlist_items': '1',
         'outtmpl': 'downloads/%(title)s.%(ext)s',
     }
-
-    if not os.path.exists('downloads'):
-        os.makedirs('downloads')
 
     with youtube_dl.YoutubeDL(ydl_opts) as ydl:
         info_dict = ydl.extract_info(url or f"ytsearch:{search_terms}", download=False)
         
-        if (url and info_dict['duration'] > 600) or (search_terms and info_dict['entries'][0]['duration'] > 600):
-            await ctx.respond("Video must be shorter than 10 minutes.")
+        if (url and info_dict.get('duration') > 600) or (search_terms and info_dict.get('entries')[0].get('duration') > 600):
+            await ctx.respond("Video must be shorter than 10 minutes.", delete_after=5)
             return
 
         info_dict = ydl.extract_info(url or f"ytsearch:{search_terms}", download=True)
-        filename = (url and ydl.prepare_filename(info_dict)) or ydl.prepare_filename(info_dict['entries'][0])
+        filename = (url and ydl.prepare_filename(info_dict)) or ydl.prepare_filename(info_dict.get('entries')[0])
         mp3_filename = filename.rsplit('.', 1)[0] + '.mp3'
 
         if not os.path.isfile(mp3_filename):
             os.rename(filename, mp3_filename)
 
-        source = discord.FFmpegPCMAudio(mp3_filename)
-        source = discord.PCMVolumeTransformer(source, BOT_VOLUME)
+    song = {
+        'filename': mp3_filename,
+        'title': url and info_dict.get('title') or info_dict.get('entries')[0].get('title'),
+        'video_link': url and info_dict.get('webpage_url') or info_dict.get('entries')[0].get('webpage_url'),
+        'length': url and info_dict.get('duration_string') or info_dict.get('entries')[0].get('duration_string')
+    }
+    SONG_QUEUES[guild_id].append(song)
 
-    ctx.voice_client.play(source, after=lambda e: after_playing(e, mp3_filename))
-    await ctx.respond("Success! Your song is about to be played!")
-    await ctx.send(f"Now playing: **{url and info_dict['title'] or info_dict['entries'][0]['title']}** - ({url and info_dict['duration_string'] or info_dict['entries'][0]['duration_string']})")
+    video_link = url and info_dict.get('webpage_url') or info_dict.get('entries')[0].get('webpage_url')
+
+    if len(SONG_QUEUES[guild_id]) == 1 and not ctx.voice_client.is_playing():
+        await ctx.respond(f"Queue is empty, [{song['title']}]({video_link}) is about to be played.")
+    else:
+        await ctx.respond(f"[{song['title']}]({video_link}) was added to the queue at position **{len(SONG_QUEUES[guild_id]) + 1}**.")
+
+    if not ctx.voice_client.is_playing():
+        await play_next(ctx)
+
+    #await ctx.send(f"Now playing: **{url and info_dict['title'] or info_dict['entries'][0]['title']}** - ({url and info_dict['duration_string'] or info_dict['entries'][0]['duration_string']})")
 
 @bot.slash_command(
-    name="stop",
-    description="Stop the current playback",
+    name="queue",
+    description="Details about the currently playing song and the queue",
+    #guild_ids=[248493533537763328, 556956284159524981]
+)
+async def queue(ctx: discord.ApplicationContext):
+    if not SONG_QUEUES[ctx.guild.id]:
+        await ctx.respond("") # TODO: get info about current song (oben wird er gepopt)
+
+@bot.slash_command(
+    name="skip",
+    description="Skip the current song",
     #guild_ids=[248493533537763328, 556956284159524981]
     )
-async def stop(ctx: discord.ApplicationContext):
+async def skip(ctx: discord.ApplicationContext):
     if ctx.voice_client and ctx.voice_client.is_playing():
         ctx.voice_client.stop()
-        await ctx.respond("Playback stopped.")
+        await ctx.respond("Song skipped.")
     else:
         await ctx.respond("No audio is currently playing.")
 
@@ -180,6 +217,13 @@ async def resume(ctx: discord.ApplicationContext):
 ##################################################################
 ############################ RUN BOT #############################
 ##################################################################
+
+@bot.listen
+async def on_voice_state_update(member, before, after):
+    if not after.channel and member == bot.user:
+        guild_id = before.channel.guild.id
+        if guild_id in SONG_QUEUES:
+            SONG_QUEUES[guild_id].clear()
 
 @bot.listen(once=True)
 async def on_ready():
