@@ -37,20 +37,33 @@ async def ping(ctx: discord.ApplicationContext):
 DEFAULT_BOT_VOLUME = 0.2
 VOLUMES = {}
 SONG_QUEUES = {}
+CURRENT_SONG = {}
 
-def after_playing(error, filename):
-    os.remove(filename)
-    print(f"Finished playing, and removed {filename}!")
-    return
+# Check if any of the song queues contains the filename or can be deleted safely.
+def contains_song(filename: str):
+    for guild_id in SONG_QUEUES:
+        for song in SONG_QUEUES[guild_id]:
+            if filename == song['filename']:
+                return True
+            
+    return False
+
+# Delete the last played song if it's not in any song queue anymore.
+def remove_downloaded_song(ctx: discord.ApplicationContext):
+    if CURRENT_SONG.get(ctx.guild.id) and not contains_song(CURRENT_SONG[ctx.guild.id]['filename']):
+        os.remove(CURRENT_SONG[ctx.guild.id]['filename'])
 
 async def play_next(ctx: discord.ApplicationContext):
     if not SONG_QUEUES[ctx.guild.id]:
+        remove_downloaded_song(ctx)
         return
     
     volume = VOLUMES[ctx.guild.id] or DEFAULT_BOT_VOLUME
 
-    next_song = SONG_QUEUES[ctx.guild.id].pop(0)
-    source = await discord.FFmpegOpusAudio.from_probe(next_song['filename'], method='fallback', options=f"-af 'volume={volume}'")
+    remove_downloaded_song(ctx)
+
+    CURRENT_SONG[ctx.guild.id] = SONG_QUEUES[ctx.guild.id].pop(0)
+    source = await discord.FFmpegOpusAudio.from_probe(CURRENT_SONG[ctx.guild.id]['filename'], method='fallback', options=f"-af 'volume={volume}'")
     ctx.voice_client.play(source, after=lambda e: asyncio.run_coroutine_threadsafe(play_next(ctx), bot.loop))
 
 @bot.slash_command(
@@ -68,7 +81,7 @@ async def leave(ctx: discord.ApplicationContext):
 @bot.slash_command(
     name="volume",
     description="Adjusts the volume (doesn't apply to the current song)",
-    guild_ids=[248493533537763328, 556956284159524981]
+    #guild_ids=[248493533537763328, 556956284159524981]
 )
 @option(
     "volume",
@@ -83,7 +96,7 @@ async def volume(ctx: discord.ApplicationContext, volume: int):
 @bot.slash_command(
     name="play",
     description="Add a YouTube video to the queue",
-    guild_ids=[248493533537763328, 556956284159524981]
+    #guild_ids=[248493533537763328, 556956284159524981]
     )
 @option(
     "url", 
@@ -167,16 +180,54 @@ async def play(ctx: discord.ApplicationContext, url: str, search_terms: str):
     if not ctx.voice_client.is_playing():
         await play_next(ctx)
 
-    #await ctx.send(f"Now playing: **{url and info_dict['title'] or info_dict['entries'][0]['title']}** - ({url and info_dict['duration_string'] or info_dict['entries'][0]['duration_string']})")
-
 @bot.slash_command(
     name="queue",
     description="Details about the currently playing song and the queue",
     #guild_ids=[248493533537763328, 556956284159524981]
 )
 async def queue(ctx: discord.ApplicationContext):
-    if not SONG_QUEUES[ctx.guild.id]:
-        await ctx.respond("") # TODO: get info about current song (oben wird er gepopt)
+    if not ctx.voice_client or (not SONG_QUEUES.get(ctx.guild.id) and not ctx.voice_client.is_playing()):
+        await ctx.respond("There are currently no songs in queue.")
+        return
+    
+    cutoff = 5
+    
+    response = ""
+
+    if ctx.voice_client.is_playing():
+        if not CURRENT_SONG[ctx.guild.id]:
+            await ctx.respond("Error, please try again.", ephemeral=True)
+            return
+        
+        response += f"- **[{CURRENT_SONG[ctx.guild.id]['title']}](<{CURRENT_SONG[ctx.guild.id]['video_link']}>) - ({CURRENT_SONG[ctx.guild.id]['length']})**\n"
+
+    for i in range(0, len(SONG_QUEUES[ctx.guild.id])):
+        song = SONG_QUEUES[ctx.guild.id][i]
+
+        if i == cutoff:
+            response += f"- ...{len(SONG_QUEUES[ctx.guild.id]) - cutoff} more song(s)."
+            break
+
+        response += f"- [{song['title']}](<{song['video_link']}>) - ({song['length']})\n"
+    
+    await ctx.respond(response)
+
+@bot.slash_command(
+    name="clear_queue",
+    description="Stop playback and clear entire queue",
+    #guild_ids=[248493533537763328, 556956284159524981]
+)
+async def clear_queue(ctx: discord.ApplicationContext):
+    if not ctx.voice_client or (not SONG_QUEUES.get(ctx.guild.id) and not ctx.voice_client.is_playing()):
+        await ctx.respond("Queue already empty.")
+        return
+    
+    SONG_QUEUES[ctx.guild.id].clear()
+
+    if ctx.voice_client.is_playing():
+        ctx.voice_client.stop()
+    
+    await ctx.respond("Stopped playback and cleared the queue.")
 
 @bot.slash_command(
     name="skip",
@@ -230,6 +281,3 @@ async def on_ready():
     print('Logged in as', bot.user)
 
 bot.run(config.DISCORD_TOKEN)
-
-
-## TODO: queue
