@@ -176,8 +176,13 @@ async def play(ctx: discord.ApplicationContext, url: str, search_terms: str):
         if (url and info_dict.get('duration', 601) > 600) or (search_terms and info_dict.get('entries')[0].get('duration', 601) > 600):
             await ctx.respond("Video must be shorter than 10 minutes.", delete_after=5)
             return
-
-        info_dict = ydl.extract_info(url or f"ytsearch:{search_terms}", download=True)
+        
+        try:
+            info_dict = ydl.extract_info(url or f"ytsearch:{search_terms}", download=True)
+        except yt_dlp.utils.DownloadError:
+            await ctx.respond("An error occurred. Please try another input.")
+            return
+        
         filename = (url and ydl.prepare_filename(info_dict)) or ydl.prepare_filename(info_dict.get('entries')[0])
         mp3_filename = filename.rsplit('.', 1)[0] + '.mp3'
 
