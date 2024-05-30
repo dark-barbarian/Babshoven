@@ -2,7 +2,7 @@ import asyncio
 import re
 import config
 import discord
-import yt_dlp as youtube_dl
+import yt_dlp
 import os
 
 from discord.ext import commands
@@ -51,8 +51,12 @@ def contains_song(filename: str):
 # Delete the last played song if it's not in any song queue anymore.
 def remove_downloaded_song(ctx: discord.ApplicationContext):
     if CURRENT_SONG.get(ctx.guild.id) and not contains_song(CURRENT_SONG[ctx.guild.id]['filename']):
-        os.remove(CURRENT_SONG[ctx.guild.id]['filename'])
+        try:
+            os.remove(CURRENT_SONG[ctx.guild.id]['filename'])
+        except FileNotFoundError:
+            pass
 
+# Function is called every time a song finishes to be able to start the next one from the queue.
 async def play_next(ctx: discord.ApplicationContext):
     if not SONG_QUEUES[ctx.guild.id]:
         remove_downloaded_song(ctx)
@@ -65,6 +69,24 @@ async def play_next(ctx: discord.ApplicationContext):
     CURRENT_SONG[ctx.guild.id] = SONG_QUEUES[ctx.guild.id].pop(0)
     source = await discord.FFmpegOpusAudio.from_probe(CURRENT_SONG[ctx.guild.id]['filename'], method='fallback', options=f"-af 'volume={volume}'")
     ctx.voice_client.play(source, after=lambda e: asyncio.run_coroutine_threadsafe(play_next(ctx), bot.loop))
+
+##################################################################
+
+@bot.slash_command(
+    name="join",
+    description="Join your channel",
+    #guild_ids=[248493533537763328]
+)
+async def join(ctx: discord.ApplicationContext):
+    if ctx.author.voice:
+        channel = ctx.author.voice.channel
+        if ctx.voice_client:
+            await ctx.voice_client.move_to(channel)
+        else:
+            await channel.connect()
+        await ctx.respond(f"Joined {channel}.")
+    else:
+        await ctx.respond("You are not in a voice channel!")
 
 @bot.slash_command(
     name="leave",
@@ -81,7 +103,7 @@ async def leave(ctx: discord.ApplicationContext):
 @bot.slash_command(
     name="volume",
     description="Adjusts the volume (doesn't apply to the current song)",
-    #guild_ids=[248493533537763328, 556956284159524981]
+    #guild_ids=[248493533537763328]
 )
 @option(
     "volume",
@@ -96,7 +118,7 @@ async def volume(ctx: discord.ApplicationContext, volume: int):
 @bot.slash_command(
     name="play",
     description="Add a YouTube video to the queue",
-    #guild_ids=[248493533537763328, 556956284159524981]
+    #guild_ids=[248493533537763328]
     )
 @option(
     "url", 
@@ -148,10 +170,10 @@ async def play(ctx: discord.ApplicationContext, url: str, search_terms: str):
         'outtmpl': 'downloads/%(title)s.%(ext)s',
     }
 
-    with youtube_dl.YoutubeDL(ydl_opts) as ydl:
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         info_dict = ydl.extract_info(url or f"ytsearch:{search_terms}", download=False)
         
-        if (url and info_dict.get('duration') > 600) or (search_terms and info_dict.get('entries')[0].get('duration') > 600):
+        if (url and info_dict.get('duration', 601) > 600) or (search_terms and info_dict.get('entries')[0].get('duration', 601) > 600):
             await ctx.respond("Video must be shorter than 10 minutes.", delete_after=5)
             return
 
@@ -183,7 +205,7 @@ async def play(ctx: discord.ApplicationContext, url: str, search_terms: str):
 @bot.slash_command(
     name="queue",
     description="Details about the currently playing song and the queue",
-    #guild_ids=[248493533537763328, 556956284159524981]
+    #guild_ids=[248493533537763328]
 )
 async def queue(ctx: discord.ApplicationContext):
     if not ctx.voice_client or (not SONG_QUEUES.get(ctx.guild.id) and not ctx.voice_client.is_playing()):
@@ -215,7 +237,7 @@ async def queue(ctx: discord.ApplicationContext):
 @bot.slash_command(
     name="clear_queue",
     description="Stop playback and clear entire queue",
-    #guild_ids=[248493533537763328, 556956284159524981]
+    #guild_ids=[248493533537763328]
 )
 async def clear_queue(ctx: discord.ApplicationContext):
     if not ctx.voice_client or (not SONG_QUEUES.get(ctx.guild.id) and not ctx.voice_client.is_playing()):
@@ -232,7 +254,7 @@ async def clear_queue(ctx: discord.ApplicationContext):
 @bot.slash_command(
     name="skip",
     description="Skip the current song",
-    #guild_ids=[248493533537763328, 556956284159524981]
+    #guild_ids=[248493533537763328]
     )
 async def skip(ctx: discord.ApplicationContext):
     if ctx.voice_client and ctx.voice_client.is_playing():
@@ -244,7 +266,7 @@ async def skip(ctx: discord.ApplicationContext):
 @bot.slash_command(
     name="pause",
     description="Pause the current playback",
-    #guild_ids=[248493533537763328, 556956284159524981]
+    #guild_ids=[248493533537763328]
     )
 async def pause(ctx: discord.ApplicationContext):
     if ctx.voice_client and ctx.voice_client.is_playing():
@@ -256,7 +278,7 @@ async def pause(ctx: discord.ApplicationContext):
 @bot.slash_command(
     name="resume",
     description="Resume the current playback",
-    #guild_ids=[248493533537763328, 556956284159524981]
+    #guild_ids=[248493533537763328]
     )
 async def resume(ctx: discord.ApplicationContext):
     if ctx.voice_client and ctx.voice_client.is_paused():
