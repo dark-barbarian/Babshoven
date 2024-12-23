@@ -1,12 +1,19 @@
 import asyncio
-import re
-import config
-import discord
-import yt_dlp
+import logging
 import os
+import re
 
+import discord
 from discord.ext import commands
 from discord import option
+import yt_dlp
+
+import config
+
+logging.basicConfig(level=logging.INFO, format='[%(asctime)s] [%(levelname)s]: %(message)s', handlers=[
+    logging.FileHandler('babshoven.log'),
+    logging.StreamHandler()
+])
 
 bot = commands.Bot()
 
@@ -23,12 +30,15 @@ def create_embed(title=None, description=None, color=None, footer=None):
 
 @bot.slash_command(
     name="ping",
-    description="Check the bot's latency",
-    #guild_ids=[248493533537763328]
+    description="Check the bot's latency"
     )
 async def ping(ctx: discord.ApplicationContext):
-    #await ctx.respond(embed=create_embed('Latency', f'{round(bot.latency * 1000)} ms', color=0x000000))
     await ctx.respond(f"Latency: {round(bot.latency * 1000)} ms")
+
+@bot.event
+async def on_application_command_error(ctx: discord.ApplicationContext, error: discord.DiscordException):
+    logging.error(error)
+    raise error
 
 ##################################################################
 ######################### MUSIC METHODS ##########################
@@ -74,8 +84,7 @@ async def play_next(ctx: discord.ApplicationContext):
 
 @bot.slash_command(
     name="join",
-    description="Join your channel",
-    #guild_ids=[248493533537763328]
+    description="Join your channel"
 )
 async def join(ctx: discord.ApplicationContext):
     if ctx.author.voice:
@@ -90,8 +99,7 @@ async def join(ctx: discord.ApplicationContext):
 
 @bot.slash_command(
     name="leave",
-    description="Leave the voice channel",
-    #guild_ids=[248493533537763328]
+    description="Leave the voice channel"
     )
 async def leave(ctx: discord.ApplicationContext):
     if ctx.voice_client:
@@ -102,8 +110,7 @@ async def leave(ctx: discord.ApplicationContext):
 
 @bot.slash_command(
     name="volume",
-    description="Adjusts the volume (doesn't apply to the current song)",
-    #guild_ids=[248493533537763328]
+    description="Adjusts the volume (doesn't apply to the current song)"
 )
 @option(
     "volume",
@@ -117,8 +124,7 @@ async def volume(ctx: discord.ApplicationContext, volume: int):
 
 @bot.slash_command(
     name="play",
-    description="Add a YouTube video to the queue",
-    #guild_ids=[248493533537763328]
+    description="Add a YouTube video to the queue"
     )
 @option(
     "url", 
@@ -213,8 +219,7 @@ async def play(ctx: discord.ApplicationContext, url: str, search_terms: str):
 
 @bot.slash_command(
     name="queue",
-    description="Details about the currently playing song and the queue",
-    #guild_ids=[248493533537763328]
+    description="Details about the currently playing song and the queue"
 )
 async def queue(ctx: discord.ApplicationContext):
     if not ctx.voice_client or (not SONG_QUEUES.get(ctx.guild.id) and not ctx.voice_client.is_playing()):
@@ -245,8 +250,7 @@ async def queue(ctx: discord.ApplicationContext):
 
 @bot.slash_command(
     name="clear_queue",
-    description="Stop playback and clear entire queue",
-    #guild_ids=[248493533537763328]
+    description="Stop playback and clear entire queue"
 )
 async def clear_queue(ctx: discord.ApplicationContext):
     if not ctx.voice_client or (not SONG_QUEUES.get(ctx.guild.id) and not ctx.voice_client.is_playing()):
@@ -262,8 +266,7 @@ async def clear_queue(ctx: discord.ApplicationContext):
 
 @bot.slash_command(
     name="skip",
-    description="Skip the current song",
-    #guild_ids=[248493533537763328]
+    description="Skip the current song"
     )
 async def skip(ctx: discord.ApplicationContext):
     if ctx.voice_client and ctx.voice_client.is_playing():
@@ -274,8 +277,7 @@ async def skip(ctx: discord.ApplicationContext):
 
 @bot.slash_command(
     name="pause",
-    description="Pause the current playback",
-    #guild_ids=[248493533537763328]
+    description="Pause the current playback"
     )
 async def pause(ctx: discord.ApplicationContext):
     if ctx.voice_client and ctx.voice_client.is_playing():
@@ -286,8 +288,7 @@ async def pause(ctx: discord.ApplicationContext):
 
 @bot.slash_command(
     name="resume",
-    description="Resume the current playback",
-    #guild_ids=[248493533537763328]
+    description="Resume the current playback"
     )
 async def resume(ctx: discord.ApplicationContext):
     if ctx.voice_client and ctx.voice_client.is_paused():
@@ -309,6 +310,6 @@ async def on_voice_state_update(member, before, after):
 
 @bot.listen(once=True)
 async def on_ready():
-    print('Logged in as', bot.user)
+    logging.info(f'Logged in as {bot.user}')
 
 bot.run(config.DISCORD_TOKEN)
