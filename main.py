@@ -171,16 +171,20 @@ async def play(ctx: discord.ApplicationContext, url: str, search_terms: str):
     }
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info_dict = ydl.extract_info(url or f"ytsearch:{search_terms}", download=False)
+        try:
+            info_dict = ydl.extract_info(url or f"ytsearch:{search_terms}", download=False)
+        except yt_dlp.utils.DownloadError:
+            await ctx.respond("An error occurred. Please try again, and make sure the video is not age-restricted.")
+            return
         
         if (url and info_dict.get('duration', 601) > 600) or (search_terms and info_dict.get('entries')[0].get('duration', 601) > 600):
-            await ctx.respond("Video must be shorter than 10 minutes.", delete_after=5)
+            await ctx.respond("Video must be shorter than 10 minutes.")
             return
         
         try:
             info_dict = ydl.extract_info(url or f"ytsearch:{search_terms}", download=True)
         except yt_dlp.utils.DownloadError:
-            await ctx.respond("An error occurred. Please try another input.")
+            await ctx.respond("An error occurred. Please try again, and make sure the video is not age-restricted.")
             return
         
         filename = (url and ydl.prepare_filename(info_dict)) or ydl.prepare_filename(info_dict.get('entries')[0])
