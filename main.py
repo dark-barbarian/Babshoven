@@ -114,11 +114,17 @@ async def leave(ctx: discord.ApplicationContext):
 )
 @option(
     "volume",
+    required=False,
+    default=str(DEFAULT_BOT_VOLUME * 100),
     input_type=int,
     min_value=1,
     max_value=100
 )
 async def volume(ctx: discord.ApplicationContext, volume: int):
+    if not volume:
+        current_volume = (VOLUMES[ctx.guild.id] or DEFAULT_BOT_VOLUME) * 100
+        await ctx.respond(f"Volume currently is set to {current_volume}%.")
+        return
     VOLUMES[ctx.guild.id] = float(volume) / 100
     await ctx.respond(f"Changed the volume to {volume}%.")
 
@@ -158,7 +164,7 @@ async def play(ctx: discord.ApplicationContext, url: str, search_terms: str):
             await ctx.respond("You are not in a voice channel!", ephemeral=True)
             return
     
-    if url and re.search("^(?:https?:\/\/(?:www\.)?)?(?:(?:youtube\.com)|(?:youtu\.be))", url) is None:
+    if url and re.search(r"^(?:https?:\/\/(?:www\.)?)?(?:(?:youtube\.com)|(?:youtu\.be))", url) is None:
         await ctx.respond("Currently, only YouTube is supported.", ephemeral=True)
         return 
 
