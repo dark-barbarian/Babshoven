@@ -115,7 +115,6 @@ async def leave(ctx: discord.ApplicationContext):
 @option(
     "volume",
     required=False,
-    default=str(DEFAULT_BOT_VOLUME * 100),
     input_type=int,
     min_value=1,
     max_value=100
