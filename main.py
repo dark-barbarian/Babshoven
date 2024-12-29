@@ -72,7 +72,7 @@ async def play_next(ctx: discord.ApplicationContext):
         remove_downloaded_song(ctx)
         return
     
-    volume = VOLUMES[ctx.guild.id] or DEFAULT_BOT_VOLUME
+    volume = VOLUMES.get(ctx.guild.id, DEFAULT_BOT_VOLUME)
 
     remove_downloaded_song(ctx)
 
@@ -121,7 +121,7 @@ async def leave(ctx: discord.ApplicationContext):
 )
 async def volume(ctx: discord.ApplicationContext, volume: int):
     if not volume:
-        current_volume = (VOLUMES[ctx.guild.id] or DEFAULT_BOT_VOLUME) * 100
+        current_volume = (VOLUMES.get(ctx.guild.id, DEFAULT_BOT_VOLUME)) * 100
         await ctx.respond(f"Volume currently is set to {int(current_volume)}%.")
         return
     VOLUMES[ctx.guild.id] = float(volume) / 100
