@@ -122,7 +122,7 @@ async def leave(ctx: discord.ApplicationContext):
 async def volume(ctx: discord.ApplicationContext, volume: int):
     if not volume:
         current_volume = (VOLUMES[ctx.guild.id] or DEFAULT_BOT_VOLUME) * 100
-        await ctx.respond(f"Volume currently is set to {current_volume}%.")
+        await ctx.respond(f"Volume currently is set to {int(current_volume)}%.")
         return
     VOLUMES[ctx.guild.id] = float(volume) / 100
     await ctx.respond(f"Changed the volume to {volume}%.")
