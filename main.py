@@ -31,7 +31,7 @@ def create_embed(title=None, description=None, color=None, footer=None):
 @bot.slash_command(
     name="ping",
     description="Check the bot's latency"
-    )
+)
 async def ping(ctx: discord.ApplicationContext):
     await ctx.respond(f"Latency: {round(bot.latency * 1000)} ms")
 
@@ -48,6 +48,7 @@ DEFAULT_BOT_VOLUME = 0.2
 VOLUMES = {}
 SONG_QUEUES = {}
 CURRENT_SONG = {}
+SONG_MAX_LENGTH_MINUTES = 30
 
 # Check if any of the song queues contains the filename or can be deleted safely.
 def contains_song(filename: str):
@@ -100,7 +101,7 @@ async def join(ctx: discord.ApplicationContext):
 @bot.slash_command(
     name="leave",
     description="Leave the voice channel"
-    )
+)
 async def leave(ctx: discord.ApplicationContext):
     if ctx.voice_client:
         await ctx.voice_client.disconnect()
@@ -113,24 +114,24 @@ async def leave(ctx: discord.ApplicationContext):
     description="Adjusts the volume (doesn't apply to the current song)"
 )
 @option(
-    "volume",
+    "value",
     required=False,
     input_type=int,
     min_value=1,
     max_value=100
 )
-async def volume(ctx: discord.ApplicationContext, volume: int):
-    if not volume:
+async def volume(ctx: discord.ApplicationContext, value: int):
+    if not value:
         current_volume = (VOLUMES.get(ctx.guild.id, DEFAULT_BOT_VOLUME)) * 100
         await ctx.respond(f"Volume currently is set to {int(current_volume)}%.")
         return
-    VOLUMES[ctx.guild.id] = float(volume) / 100
-    await ctx.respond(f"Changed the volume to {volume}%.")
+    VOLUMES[ctx.guild.id] = float(value) / 100
+    await ctx.respond(f"Changed the volume to {value}%.")
 
 @bot.slash_command(
     name="play",
     description="Add a YouTube video to the queue"
-    )
+)
 @option(
     "url", 
     description="Link the YouTube video",
@@ -168,6 +169,14 @@ async def play(ctx: discord.ApplicationContext, url: str, search_terms: str):
         return 
 
     await ctx.defer()
+    
+    def vid_too_long(info, *, incomplete):
+        global is_vid_too_long
+        is_vid_too_long = False
+        duration = info.get('duration')
+        if (duration and duration > SONG_MAX_LENGTH_MINUTES * 60):
+            is_vid_too_long = True
+            return f"'{info.get('title')}' is too long"
 
     ydl_opts = {
         'format': 'bestaudio/best',
@@ -176,6 +185,7 @@ async def play(ctx: discord.ApplicationContext, url: str, search_terms: str):
             'preferredcodec': 'mp3',
             'preferredquality': '192',
         }],
+        'match_filter': vid_too_long,
         'noplaylist': True,
         'playlist_items': '1',
         'outtmpl': 'downloads/%(title)s.%(ext)s',
@@ -183,22 +193,19 @@ async def play(ctx: discord.ApplicationContext, url: str, search_terms: str):
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         try:
-            info_dict = ydl.extract_info(url or f"ytsearch:{search_terms}", download=False)
+            info_dict = ydl.extract_info(url or f"ytsearch:{search_terms}")
         except yt_dlp.utils.DownloadError:
             await ctx.respond("An error occurred. Please try again, and make sure the video is not age-restricted.")
             return
         
-        if (url and info_dict.get('duration', 601) > 600) or (search_terms and info_dict.get('entries')[0].get('duration', 601) > 600):
-            await ctx.respond("Video must be shorter than 10 minutes.")
+        if is_vid_too_long:
+            await ctx.respond(f"Video must be shorter than {SONG_MAX_LENGTH_MINUTES} minutes.")
             return
+
+        if search_terms:
+            info_dict = info_dict.get('entries')[0]
         
-        try:
-            info_dict = ydl.extract_info(url or f"ytsearch:{search_terms}", download=True)
-        except yt_dlp.utils.DownloadError:
-            await ctx.respond("An error occurred. Please try again, and make sure the video is not age-restricted.")
-            return
-        
-        filename = (url and ydl.prepare_filename(info_dict)) or ydl.prepare_filename(info_dict.get('entries')[0])
+        filename = ydl.prepare_filename(info_dict)
         mp3_filename = filename.rsplit('.', 1)[0] + '.mp3'
 
         if not os.path.isfile(mp3_filename):
@@ -206,13 +213,13 @@ async def play(ctx: discord.ApplicationContext, url: str, search_terms: str):
 
     song = {
         'filename': mp3_filename,
-        'title': url and info_dict.get('title') or info_dict.get('entries')[0].get('title'),
-        'video_link': url and info_dict.get('webpage_url') or info_dict.get('entries')[0].get('webpage_url'),
-        'length': url and info_dict.get('duration_string') or info_dict.get('entries')[0].get('duration_string')
+        'title': info_dict.get('title'),
+        'video_link': info_dict.get('webpage_url'),
+        'length': info_dict.get('duration_string')
     }
     SONG_QUEUES[guild_id].append(song)
 
-    video_link = url and info_dict.get('webpage_url') or info_dict.get('entries')[0].get('webpage_url')
+    video_link = info_dict.get('webpage_url')
 
     if len(SONG_QUEUES[guild_id]) == 1 and not ctx.voice_client.is_playing():
         await ctx.respond(f"Queue is empty, [{song['title']}]({video_link}) is about to be played.")
@@ -272,7 +279,7 @@ async def clear_queue(ctx: discord.ApplicationContext):
 @bot.slash_command(
     name="skip",
     description="Skip the current song"
-    )
+)
 async def skip(ctx: discord.ApplicationContext):
     if ctx.voice_client and ctx.voice_client.is_playing():
         ctx.voice_client.stop()
@@ -283,7 +290,7 @@ async def skip(ctx: discord.ApplicationContext):
 @bot.slash_command(
     name="pause",
     description="Pause the current playback"
-    )
+)
 async def pause(ctx: discord.ApplicationContext):
     if ctx.voice_client and ctx.voice_client.is_playing():
         ctx.voice_client.pause()
@@ -294,7 +301,7 @@ async def pause(ctx: discord.ApplicationContext):
 @bot.slash_command(
     name="resume",
     description="Resume the current playback"
-    )
+)
 async def resume(ctx: discord.ApplicationContext):
     if ctx.voice_client and ctx.voice_client.is_paused():
         ctx.voice_client.resume()
