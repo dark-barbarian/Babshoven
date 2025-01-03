@@ -325,3 +325,5 @@ async def on_ready():
     logging.info(f'Logged in as {bot.user}')
 
 bot.run(config.DISCORD_TOKEN)
+
+#TODO: loop song command, allow playlists
