@@ -326,4 +326,4 @@ async def on_ready():
 
 bot.run(config.DISCORD_TOKEN)
 
-#TODO: loop song command, allow playlists
+#TODO: loop song command, allow playlists, store volume settings
