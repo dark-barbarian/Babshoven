@@ -404,7 +404,7 @@ async def on_ready():
     try:
         with open(VOLUME_SETTINGS_FILE_PATH, 'r') as file:
             ALL_GUILD_VOLUME_SETTINGS = json.load(file, object_pairs_hook=lambda pairs: {int(k): v for k,v in pairs})
-    except Exception as e:
+    except (OSError, json.JSONDecodeError) as e:
         logging.error(f"Error upon reading {VOLUME_SETTINGS_FILE_PATH}: {e}")
         pass
     
