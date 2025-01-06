@@ -60,6 +60,7 @@ DEFAULT_BOT_VOLUME = 0.2
 ALL_GUILD_VOLUME_SETTINGS: dict[int, float] = {}
 VOLUME_SETTINGS_FILE_PATH = "./volumesettings.json"
 
+ALL_GUILD_DOWNLOADS: dict[int, set] = {}
 ALL_GUILD_SONG_QUEUES: dict[int, list[dict[str, str | int]]] = {}
 ALL_GUILD_CURRENT_SONGS: dict[int, dict[str, str | int | datetime | timedelta]] = {}
 SONG_MAX_LENGTH_MINUTES = 30
@@ -70,6 +71,7 @@ ALL_GUILD_LOOP_SETTINGS: dict[int, int] = {}  # (guild_id: -n | 0 | +n) -> -n: l
 def current_song_info(ctx: discord.ApplicationContext):
     response = ""
     current_song = ALL_GUILD_CURRENT_SONGS.get(ctx.guild_id)
+    loops = ALL_GUILD_LOOP_SETTINGS.get(ctx.guild_id, 0)
     
     if not current_song:
         return ""
@@ -82,12 +84,17 @@ def current_song_info(ctx: discord.ApplicationContext):
     else:
         runtime = "0:00:00"
         
-    if current_song["duration"] < 60 * 60:  # song is shorter than 1 hour
+    if current_song["duration"] < 60:  # if song is under 1 minute, duration_string is just the number of seconds
+        current_song["duration_string"] = "0:" + current_song["duration_string"].zfill(2)
+    if current_song["duration"] < 60 * 60:  # song is shorter than 1 hour, make 0:01:23 -> 1:23
         runtime = runtime.removeprefix("0:").removeprefix("0")
         
-    response += f"- **[{current_song["title"]}](<{current_song["video_link"]}>) - ({runtime} / {current_song["duration_string"]})**\n"
+    response += f"- **[{current_song["title"]}](<{current_song["video_link"]}>) - ({runtime} / {current_song["duration_string"]})"
     
-    return response
+    if loops != 0:
+        response += f" [Looped: {loops if loops > 0 else '\u221e'} time{'s' if loops != 1 else ''} left]"
+    
+    return response + "**"
     
 
 # Delete the last played song if it's not in any song queue anymore.
@@ -109,22 +116,25 @@ async def play_next(ctx: discord.ApplicationContext):
     volume = ALL_GUILD_VOLUME_SETTINGS.get(guild_id, DEFAULT_BOT_VOLUME)    
     loops = ALL_GUILD_LOOP_SETTINGS.get(guild_id, 0)
     
-    if loops == 0:  # try to remove song only if it's not actively being looped
+    if loops == 0:
+        # try to remove song only if it's not actively being looped - the queue already might be empty
         remove_downloaded_song(ALL_GUILD_CURRENT_SONGS.get(guild_id))
-    
-    if len(ALL_GUILD_SONG_QUEUES[guild_id]) == 0:  # early exit if there is no song in queue
-        return
-
-    ALL_GUILD_CURRENT_SONGS[guild_id] = ALL_GUILD_SONG_QUEUES[guild_id].pop(0)
-    if loops != 0:
-        ALL_GUILD_SONG_QUEUES[guild_id].insert(0, ALL_GUILD_CURRENT_SONGS[guild_id])
-        ALL_GUILD_LOOP_SETTINGS[guild_id] -= 1
+        if len(ALL_GUILD_SONG_QUEUES[guild_id]) == 0:
+            return
+        
+        try:
+            ALL_GUILD_CURRENT_SONGS[guild_id] = ALL_GUILD_SONG_QUEUES[guild_id].pop(0)
+        except IndexError:
+            pass
+    else:
+         ALL_GUILD_LOOP_SETTINGS[guild_id] -= 1
         
     ALL_GUILD_CURRENT_SONGS[guild_id]["starting_time"] = datetime.now()
     
     source = await discord.FFmpegOpusAudio.from_probe(
         ALL_GUILD_CURRENT_SONGS[guild_id]['filename'], method='fallback', options=f"-af 'volume={volume}'")
     ctx.voice_client.play(source, after=lambda e: asyncio.run_coroutine_threadsafe(play_next(ctx), bot.loop))
+    
 
 ##################################################################
 
@@ -142,7 +152,7 @@ async def leave(ctx: discord.ApplicationContext):
 # TODO: make it apply to the current song, maybe with force parameter (play the song again, fast forward to current timestamp)
 @bot.slash_command(
     name="volume",
-    description=f"Adjusts the volume (doesn't apply to the current song)"
+    description="Adjust the volume (doesn't apply to the current song)"
 )
 @option(
     "value",
@@ -173,7 +183,7 @@ async def volume(ctx: discord.ApplicationContext, value: int):
 
 @bot.slash_command(
     name="play",
-    description="Add a YouTube video to the queue"
+    description="Add a YouTube video to the queue or resume paused playback (if both parameters are left empty)"
 )
 @option(
     "url", 
@@ -190,18 +200,36 @@ async def play(ctx: discord.ApplicationContext, url: str, search_terms: str):
     
     ALL_GUILD_SONG_QUEUES.setdefault(guild_id, [])
     ALL_GUILD_VOLUME_SETTINGS.setdefault(guild_id, DEFAULT_BOT_VOLUME)
-
-    if bool(url) == bool(search_terms):
-        await ctx.respond("You need to provide either an URL or search terms.", ephemeral=True)
+    ALL_GUILD_DOWNLOADS.setdefault(guild_id, set())
+    
+    if url and search_terms:
+        await ctx.respond("Don't use both parameters at the same time.", ephemeral=True)
         return
 
-    if not ctx.voice_client:
-        if ctx.author.voice:
-            channel = ctx.author.voice.channel
-            await channel.connect()
+    if ctx.author.voice:
+        channel = ctx.author.voice.channel
+        if ctx.voice_client:
+            if channel != ctx.voice_client.channel:
+                if not url and not search_terms and is_active(ctx):
+                    await ctx.voice_client.move_to(channel)
+                    if ctx.voice_client.is_playing():
+                        await ctx.respond("Continuing playback in your new voice channel!")
+                        return
         else:
-            await ctx.respond("You are not in a voice channel!", ephemeral=True)
-            return
+            if url or search_terms:
+                await channel.connect()
+    else:
+        await ctx.respond("You are not in a voice channel!", ephemeral=True)
+        return
+    
+    if not url and not search_terms:
+        if ctx.voice_client and ctx.voice_client.is_paused():
+            ctx.voice_client.resume()
+            ALL_GUILD_CURRENT_SONGS[ctx.guild_id]["starting_time"] = datetime.now() - ALL_GUILD_CURRENT_SONGS[ctx.guild_id]["passed_time_until_pause"]
+            await ctx.respond("Playback resumed.")
+        else:
+            await ctx.respond("No audio is currently paused.")
+        return
     
     if url and re.search(r"^(?:https?:\/\/(?:www\.)?)?(?:(?:youtube\.com)|(?:youtu\.be))", url) is None:
         await ctx.respond("Currently, only YouTube is supported.", ephemeral=True)
@@ -216,24 +244,35 @@ async def play(ctx: discord.ApplicationContext, url: str, search_terms: str):
         if (duration and duration > SONG_MAX_LENGTH_MINUTES * 60):
             is_vid_too_long = True
             return f"'{info.get('title')}' is too long"
+        
+    def vid_time_range(info_dict, ydl):
+        return [{"start_time": 0, "end_time": info_dict.get("duration", 0)}]
 
     ydl_opts = {
+        #'download_archive': ALL_GUILD_DOWNLOADS.get(ctx.guild_id),  # TODO: muss beim löschen auch gecleared werden {'youtube _id'}
+        'download_ranges': vid_time_range,  # TODO: for volume instant applying
         'format': 'bestaudio/best',
+        'logger': logging,
+        'match_filter': vid_too_long,
+        'noplaylist': True,
+        'outtmpl': 'downloads/%(title)s.%(ext)s',
+        'playlist_items': '1',
         'postprocessors': [{
             'key': 'FFmpegExtractAudio',
             'preferredcodec': 'mp3',
             'preferredquality': '192',
         }],
-        'match_filter': vid_too_long,
-        'noplaylist': True,
-        'playlist_items': '1',
-        'outtmpl': 'downloads/%(title)s.%(ext)s',
+        'verbose': True
     }
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         try:
             info_dict = ydl.extract_info(url or f"ytsearch:{search_terms}")
-        except yt_dlp.utils.DownloadError:
+            if not info_dict or (search_terms and not info_dict.get('entries')):
+                # TODO: wenn info_dict is None, hat vermutlich das download_archive gesperrt. In dem Fall trotzdem fortfahren und das downgeloadete file nutzen
+                raise yt_dlp.utils.DownloadError("info_dict is empty")
+        except yt_dlp.utils.DownloadError as e:
+            logging.error(f"Download of video failed: {e}")
             await ctx.respond("An error occurred. Please try again, and make sure the video is not age-restricted.")
             return
         
@@ -270,30 +309,29 @@ async def play(ctx: discord.ApplicationContext, url: str, search_terms: str):
         await play_next(ctx)
 
 
-#TODO: loop is bugged, only plays once, after fixing make sure that /play and /queue are aware of the loops
-#@bot.slash_command(
-#    name="loop",
-#    description="Loops the current song or stops the loop"
-#)
-#@option(
-#    "max_times",
-#    description="Maximum number of times this song will be looped; infinite if omitted",
-#    required=False,
-#    input_type=int,
-#    min_value=1
-#)
+@bot.slash_command(
+    name="loop",
+    description="Loop the current song or stop the loop"
+)
+@option(
+    "max_times",
+    description="Maximum number of times this song will be looped; infinite or 0 if omitted (depends on state)",
+    required=False,
+    input_type=int,
+    min_value=1
+)
 async def loop(ctx: discord.ApplicationContext, max_times: int):
-    if not ctx.voice_client or not ctx.voice_client.is_playing():
+    if not is_active(ctx):
         await ctx.respond("There is nothing to loop.")
         return
     
-    loops = ALL_GUILD_LOOP_SETTINGS.get(ctx.guild_id)
-    if not loops or loops == 0:
+    loops = ALL_GUILD_LOOP_SETTINGS.get(ctx.guild_id, 0)
+    if loops == 0:
         ALL_GUILD_LOOP_SETTINGS[ctx.guild_id] = max_times or -1
-        await ctx.respond(f"The song that is currently played will be looped {f"{max_times} times" if max_times else "infinitely"}.")
+        await ctx.respond(f"The song that is currently played will be looped {f"{max_times} time{'s' if max_times > 1 else ''}" if max_times else "infinitely"}.")
     else:
-        ALL_GUILD_LOOP_SETTINGS[ctx.guild_id] = 0
-        await ctx.respond("Disabled looping for this song.")
+        ALL_GUILD_LOOP_SETTINGS[ctx.guild_id] = max_times or 0
+        await ctx.respond(f"Song will be looped {max_times} more time{'s' if max_times > 1 else ''}." if max_times else "Disabled looping for this song.")
         
 
 @bot.slash_command(
@@ -319,7 +357,7 @@ async def queue(ctx: discord.ApplicationContext):
     
     cutoff = 5
     
-    response = current_song_info(ctx)
+    response = current_song_info(ctx) + '\n'
 
     for i in range(0, len(ALL_GUILD_SONG_QUEUES[ctx.guild_id])):
         song = ALL_GUILD_SONG_QUEUES[ctx.guild_id][i]
@@ -353,7 +391,7 @@ async def clear_queue(ctx: discord.ApplicationContext):
 
 @bot.slash_command(
     name="skip",
-    description="Skips the current song"
+    description="Skip the current song"
 )
 async def skip(ctx: discord.ApplicationContext):
     if is_active(ctx):
@@ -365,7 +403,7 @@ async def skip(ctx: discord.ApplicationContext):
 
 @bot.slash_command(
     name="pause",
-    description="Pauses the current playback"
+    description="Pause the current playback"
 )
 async def pause(ctx: discord.ApplicationContext):
     if ctx.voice_client and ctx.voice_client.is_playing():
@@ -374,18 +412,6 @@ async def pause(ctx: discord.ApplicationContext):
         await ctx.respond("Playback paused.")
     else:
         await ctx.respond("No audio is currently playing.")
-
-@bot.slash_command(
-    name="resume",
-    description="Resumes the current playback"
-)
-async def resume(ctx: discord.ApplicationContext):
-    if ctx.voice_client and ctx.voice_client.is_paused():
-        ctx.voice_client.resume()
-        ALL_GUILD_CURRENT_SONGS[ctx.guild_id]["starting_time"] = datetime.now() - ALL_GUILD_CURRENT_SONGS[ctx.guild_id]["passed_time_until_pause"]
-        await ctx.respond("Playback resumed.")
-    else:
-        await ctx.respond("No audio is currently paused.")
 
 ##################################################################
 ############################ RUN BOT #############################
@@ -413,6 +439,6 @@ async def on_ready():
 
 bot.run(config.DISCORD_TOKEN)
 
-#TODO: loop song command, allow playlists, apply volume instantly by maybe restarting the song and fast forwarding to the current timestamp?
+#TODO: allow playlists, apply volume instantly by maybe restarting the song and fast forwarding to the current timestamp?
 # download der songs async machen, wegen 10s heartbeat block https://stackoverflow.com/questions/65881761/discord-gateway-warning-shard-id-none-heartbeat-blocked-for-more-than-10-second
 # untersuchen, warum ffmpeg -9 bei /skip kommt
