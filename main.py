@@ -13,6 +13,16 @@ import yt_dlp
 import config
 from observable_set import ObservableSet
 
+class YTDLPLogger:
+    def __init__(self, guild_id: str):
+        self.logger = logging.getLogger()
+        self.guild_id = guild_id
+
+    def debug(self, msg: str):
+        if "has already been recorded in" in msg:
+            ALL_GUILD_DOWNLOAD_IDS[self.guild_id] = msg.split(':')[0].removeprefix("[download] ")[len("[0;32m"):-len("[0m")]
+        self.logger.info(msg.strip())
+
 logging.basicConfig(level=logging.INFO, format='[%(asctime)s] [%(levelname)s]: %(message)s', handlers=[
     logging.FileHandler('babshoven.log'),
     logging.StreamHandler()
@@ -67,7 +77,8 @@ ALL_GUILD_VOLUME_SETTINGS: dict[int, float] = {}
 VOLUME_SETTINGS_FILE_PATH = "./volumesettings.json"
 
 DOWNLOAD_COUNTER = 0  # id to differentiate between downloaded songs
-ALL_GUILD_CURRENT_ARCHIVE_IDS: dict[int, str] = {}
+ALL_GUILD_DOWNLOAD_IDS: dict[int, str] = {}  # contains id of the most recent song that was tried to be downloaded, but denied due to already being present in download_archive
+ALL_GUILD_CURRENT_ARCHIVE_IDS: dict[int, str] = {}  # contains entry that's added to the download_archive
 ALL_GUILD_DOWNLOAD_ARCHIVES: dict[int, ObservableSet] = {}
 ALL_GUILD_SONG_QUEUES: dict[int, list[dict[str, str | int]]] = {}
 ALL_GUILD_CURRENT_SONGS: dict[int, dict[str, str | int | datetime | timedelta]] = {}
@@ -160,6 +171,9 @@ async def leave(ctx: discord.ApplicationContext):
         await ctx.respond("I am not in a voice channel!")
 
 # TODO: make it apply to the current song, maybe with force parameter (play the song again, fast forward to current timestamp)
+# aktuellen timestamp merken, neu downloaden (archive ignorieren über extra bool param), mit abgeschnittenem startzeitpunkt
+# gucken, ob man beim download z.b. sagen kann "du brauchst min. 10s, wenn du schneller fertig wirst, wartest du", und dann auf den timestamp 10s
+# draufrechnen, um einen möglichst smoothen übergang zu kriegen
 @bot.slash_command(
     name="volume",
     description="Adjust the volume (doesn't apply to the current song)"
@@ -260,15 +274,13 @@ async def play(ctx: discord.ApplicationContext, url: str, search_terms: str):
         
     def vid_time_range(info_dict, ydl):
         return [{"start_time": 0, "end_time": info_dict.get("duration", 0)}]
-    
+
     global DOWNLOAD_COUNTER
     ydl_opts = {
-        # need to figure out a why to check as to why a video download was skipped (get the id of the match in the set())
-        # TODO: if url was entered, parse id of yt url. if search_terms or different host, make the same query, but skip download. Fetch metadata, get id.
-        #'download_archive': ALL_GUILD_DOWNLOAD_ARCHIVES.get(ctx.guild_id),
+        'download_archive': ALL_GUILD_DOWNLOAD_ARCHIVES.get(ctx.guild_id),
         'download_ranges': vid_time_range,  # TODO: for volume instant applying
         'format': 'bestaudio/best',
-        'logger': logging,
+        'logger': YTDLPLogger(guild_id),
         'match_filter': vid_too_long,
         'noplaylist': True,
         'outtmpl': f'downloads/{(DOWNLOAD_COUNTER := DOWNLOAD_COUNTER + 1)} - {"%(title)s"}.{"%(ext)s"}',
@@ -278,7 +290,7 @@ async def play(ctx: discord.ApplicationContext, url: str, search_terms: str):
             'preferredcodec': 'mp3',
             'preferredquality': '192',
         }],
-        'verbose': True
+        #'verbose': True
     }
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -288,7 +300,7 @@ async def play(ctx: discord.ApplicationContext, url: str, search_terms: str):
             logging.error(f"Download of video failed: {e}")
             await ctx.respond("An error occurred. Please try again, and make sure the video is not age-restricted.")
             return
-                
+        
         if is_vid_too_long:
             await ctx.respond(f"Video must be shorter than {SONG_MAX_LENGTH_MINUTES} minutes.")
             return
@@ -320,11 +332,12 @@ async def play(ctx: discord.ApplicationContext, url: str, search_terms: str):
         ALL_GUILD_SONG_QUEUES[guild_id].append(song)
     else:
         # info_dict is None, most likely due to download_archive blocking the download. Search the queue and use the song info that's already there
-        song = list(find_dict_by_id(ALL_GUILD_SONG_QUEUES[guild_id] + [ALL_GUILD_CURRENT_SONGS[guild_id]], ""))
+        song = list(find_dict_by_id(ALL_GUILD_SONG_QUEUES[guild_id] + [ALL_GUILD_CURRENT_SONGS[guild_id]], ALL_GUILD_DOWNLOAD_IDS.get(guild_id, "")))
         if len(song) != 1:  # function found more than 1 dict with this id (should never happen) or hasn't found anything. Abort in both cases
             await ctx.respond("An error occurred. Please try again, and optionally clear the queue.")
             return
         song = song[0]
+        ALL_GUILD_SONG_QUEUES[guild_id].append(song)
     
     if len(ALL_GUILD_SONG_QUEUES[guild_id]) == 1 and not is_active(ctx):
         await ctx.respond(f"Queue is empty, [{song['title']}]({song["video_link"]}) is about to be played.")
