@@ -88,6 +88,8 @@ DEFAULT_BOT_VOLUME = 0.2
 ALL_GUILD_VOLUME_SETTINGS: dict[int, float] = {}
 VOLUME_SETTINGS_FILE_PATH = "./volumesettings.json"
 
+PAUSE_AFTER_PLAY: dict[int, bool] = {}
+
 ALL_GUILD_DOWNLOAD_IDS: dict[int, str] = {}  # contains id of the most recent song that was tried to be downloaded, but denied due to already being present in download_archive
 ALL_GUILD_CURRENT_ARCHIVE_IDS: dict[int, str] = {}  # contains entry that's added to the download_archive
 ALL_GUILD_DOWNLOAD_ARCHIVES: ObservableSet = ObservableSet()
@@ -174,6 +176,9 @@ async def play_next(ctx: discord.ApplicationContext):
     ALL_GUILD_CURRENT_SONGS[guild_id]["passed_time"] = timedelta(seconds=0)  # reset passed_time in case of loops
     
     ctx.voice_client.play(source, after=lambda e: asyncio.run_coroutine_threadsafe(play_next(ctx), bot.loop))
+    if PAUSE_AFTER_PLAY.get(guild_id, False):
+        ctx.voice_client.pause()
+        PAUSE_AFTER_PLAY[guild_id] = False
     
 
 ##################################################################
@@ -202,9 +207,10 @@ async def leave(ctx: discord.ApplicationContext):
     max_value=100
 )
 async def volume(ctx: discord.ApplicationContext, value: int):
-    if not value:
-        current_volume = (ALL_GUILD_VOLUME_SETTINGS.get(ctx.guild_id, DEFAULT_BOT_VOLUME)) * 100
-        await ctx.respond(f"Volume currently is set to {int(current_volume)}%.")
+    current_volume = int((ALL_GUILD_VOLUME_SETTINGS.get(ctx.guild_id, DEFAULT_BOT_VOLUME)) * 100)
+    
+    if not value or value == current_volume:
+        await ctx.respond(f"Volume currently is set to {current_volume}%.")
         return
     
     ALL_GUILD_VOLUME_SETTINGS[ctx.guild_id] = float(value) / 100
@@ -223,12 +229,14 @@ async def volume(ctx: discord.ApplicationContext, value: int):
         if ctx.voice_client.is_playing():
             passed_time = datetime.now() - ALL_GUILD_CURRENT_SONGS[ctx.guild_id]["starting_time"]
             ALL_GUILD_CURRENT_SONGS[ctx.guild_id]["passed_time"] = passed_time
+        elif ctx.voice_client.is_paused():
+            ALL_GUILD_CURRENT_SONGS[ctx.guild_id]["passed_time"] = ALL_GUILD_CURRENT_SONGS[ctx.guild_id]["passed_time_until_pause"]
+            PAUSE_AFTER_PLAY[ctx.guild_id] = True
+        
+        if is_active(ctx):
             loops = ALL_GUILD_LOOP_SETTINGS.get(ctx.guild_id, 0)
             ALL_GUILD_LOOP_SETTINGS[ctx.guild_id] = loops + 1 if loops >= 0 else loops
             ctx.voice_client.stop()
-        elif ctx.voice_client.is_paused():
-            passed_time: timedelta = datetime.now() - ALL_GUILD_CURRENT_SONGS[ctx.guild_id]["starting_time"]
-            print(str(passed_time))
     
     await ctx.respond(f"Changed the volume to {value}%.")
 
