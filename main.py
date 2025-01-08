@@ -47,7 +47,6 @@ def is_active(ctx: discord.ApplicationContext):
 # Is called when the bot is asked to leave/clear its storage/refresh its state. Clears song queue, resets loop parameter, etc.
 def cleanup(guild_id: int):
     ALL_GUILD_SONG_QUEUES.pop(guild_id, None)
-    ALL_GUILD_DOWNLOAD_ARCHIVES.pop(guild_id, None)
     ALL_GUILD_LOOP_SETTINGS.pop(guild_id, None)
 
 
@@ -76,10 +75,9 @@ DEFAULT_BOT_VOLUME = 0.2
 ALL_GUILD_VOLUME_SETTINGS: dict[int, float] = {}
 VOLUME_SETTINGS_FILE_PATH = "./volumesettings.json"
 
-DOWNLOAD_COUNTER = 0  # id to differentiate between downloaded songs
 ALL_GUILD_DOWNLOAD_IDS: dict[int, str] = {}  # contains id of the most recent song that was tried to be downloaded, but denied due to already being present in download_archive
 ALL_GUILD_CURRENT_ARCHIVE_IDS: dict[int, str] = {}  # contains entry that's added to the download_archive
-ALL_GUILD_DOWNLOAD_ARCHIVES: dict[int, ObservableSet] = {}
+ALL_GUILD_DOWNLOAD_ARCHIVES: ObservableSet = ObservableSet()
 ALL_GUILD_SONG_QUEUES: dict[int, list[dict[str, str | int]]] = {}
 ALL_GUILD_CURRENT_SONGS: dict[int, dict[str, str | int | datetime | timedelta]] = {}
 SONG_MAX_LENGTH_MINUTES = 30
@@ -121,13 +119,14 @@ def current_song_info(ctx: discord.ApplicationContext):
 def remove_downloaded_song(ctx: discord.ApplicationContext, current_song: dict[str, str | int | datetime]):
     if not current_song:
         return
-    
-    # check if any of the song queues contains the filename
     filename = current_song['filename']
-    if not any(song['filename'] == filename for queue in ALL_GUILD_SONG_QUEUES.values() for song in queue):
+    ALL_GUILD_CURRENT_SONGS[ctx.guild_id].clear()
+    # check if any of the song queues contains the filename
+    
+    if not any(song['filename'] == filename for queue in (list(ALL_GUILD_SONG_QUEUES.values()) + [list(ALL_GUILD_CURRENT_SONGS.values())]) for song in queue):
         try:
             os.remove(filename)
-            ALL_GUILD_DOWNLOAD_ARCHIVES[ctx.guild_id].discard(current_song["archive_id"])
+            ALL_GUILD_DOWNLOAD_ARCHIVES.discard(current_song["archive_id"])
         except FileNotFoundError:
             pass
 
@@ -153,7 +152,8 @@ async def play_next(ctx: discord.ApplicationContext):
     ALL_GUILD_CURRENT_SONGS[guild_id]["starting_time"] = datetime.now()
     
     source = await discord.FFmpegOpusAudio.from_probe(
-        ALL_GUILD_CURRENT_SONGS[guild_id]['filename'], method='fallback', options=f"-af 'volume={volume}'")
+        ALL_GUILD_CURRENT_SONGS[guild_id]['filename'], method='fallback',
+            before_options=f"-ss {ALL_GUILD_CURRENT_SONGS[guild_id].get("passed_time", 0)}", options=f"-af 'volume={volume}'")
     ctx.voice_client.play(source, after=lambda e: asyncio.run_coroutine_threadsafe(play_next(ctx), bot.loop))
     
 
@@ -203,6 +203,17 @@ async def volume(ctx: discord.ApplicationContext, value: int):
         await ctx.respond("Changing the volume failed, please try again.")
         return
     
+    # apply volume to playing songs
+    if ctx.voice_client:
+        if ctx.voice_client.is_playing():
+            passed_time = datetime.now() - ALL_GUILD_CURRENT_SONGS[ctx.guild_id]["starting_time"]
+            ALL_GUILD_CURRENT_SONGS[ctx.guild_id]["passed_time"] = str(passed_time)
+            ALL_GUILD_SONG_QUEUES[ctx.guild_id].insert(0, ALL_GUILD_CURRENT_SONGS[ctx.guild_id])
+            ctx.voice_client.stop()
+        elif ctx.voice_client.is_paused():
+            passed_time: timedelta = datetime.now() - ALL_GUILD_CURRENT_SONGS[ctx.guild_id]["starting_time"]
+            print(str(passed_time))
+    
     await ctx.respond(f"Changed the volume to {value}%.")
 
 @bot.slash_command(
@@ -227,7 +238,7 @@ async def play(ctx: discord.ApplicationContext, url: str, search_terms: str):
     
     ALL_GUILD_SONG_QUEUES.setdefault(guild_id, [])
     ALL_GUILD_VOLUME_SETTINGS.setdefault(guild_id, DEFAULT_BOT_VOLUME)
-    ALL_GUILD_DOWNLOAD_ARCHIVES.setdefault(guild_id, ObservableSet(callback=add_archive_id))
+    ALL_GUILD_DOWNLOAD_ARCHIVES.set_callback(add_archive_id, overwrite=False)
     
     if url and search_terms:
         await ctx.respond("Don't use both parameters at the same time.", ephemeral=True)
@@ -275,15 +286,14 @@ async def play(ctx: discord.ApplicationContext, url: str, search_terms: str):
     def vid_time_range(info_dict, ydl):
         return [{"start_time": 0, "end_time": info_dict.get("duration", 0)}]
 
-    global DOWNLOAD_COUNTER
     ydl_opts = {
-        'download_archive': ALL_GUILD_DOWNLOAD_ARCHIVES.get(ctx.guild_id),
+        'download_archive': ALL_GUILD_DOWNLOAD_ARCHIVES,
         'download_ranges': vid_time_range,  # TODO: for volume instant applying
         'format': 'bestaudio/best',
         'logger': YTDLPLogger(guild_id),
         'match_filter': vid_too_long,
         'noplaylist': True,
-        'outtmpl': f'downloads/{(DOWNLOAD_COUNTER := DOWNLOAD_COUNTER + 1)} - {"%(title)s"}.{"%(ext)s"}',
+        'outtmpl': 'downloads/%(title)s [%(id)s].%(ext)s',
         'playlist_items': '1',
         'postprocessors': [{
             'key': 'FFmpegExtractAudio',
@@ -318,7 +328,7 @@ async def play(ctx: discord.ApplicationContext, url: str, search_terms: str):
 
             if not os.path.isfile(mp3_filename):
                 os.rename(filename, mp3_filename)
-    
+    print(mp3_filename)
     if info_dict:    
         song = {
             'archive_id': ALL_GUILD_CURRENT_ARCHIVE_IDS.get(guild_id, ""),
@@ -333,7 +343,7 @@ async def play(ctx: discord.ApplicationContext, url: str, search_terms: str):
     else:
         # info_dict is None, most likely due to download_archive blocking the download. Search the queue and use the song info that's already there
         song = list(find_dict_by_id(ALL_GUILD_SONG_QUEUES[guild_id] + [ALL_GUILD_CURRENT_SONGS[guild_id]], ALL_GUILD_DOWNLOAD_IDS.get(guild_id, "")))
-        if len(song) != 1:  # function found more than 1 dict with this id (should never happen) or hasn't found anything. Abort in both cases
+        if len(song) == 0:  # function hasn't found anything. Abort.
             await ctx.respond("An error occurred. Please try again, and optionally clear the queue.")
             return
         song = song[0]
