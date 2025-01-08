@@ -4,7 +4,7 @@ class ObservableSet(set):
         self._callback = callback
     
     def set_callback(self, callback, overwrite = False):
-        if callback and not overwrite:
+        if self._callback and not overwrite:
             return
         self._callback = callback
 
