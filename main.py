@@ -6,6 +6,7 @@ import os
 import re
 
 import discord
+from discord.channel import VocalGuildChannel
 from discord.ext import commands
 from discord import option
 import yt_dlp
@@ -46,14 +47,14 @@ bot = commands.Bot()
 ############################ GENERAL #############################
 ##################################################################
 
+ALL_GUILD_CURRENT_VOICE_CHANNEL_IDS: dict[int, int] = {}
+
+DISCONNECTION_COUNTDOWN: int = 300  # seconds until disconnect while inactive and lonely
+
 def create_embed(title=None, description=None, color=None, footer=None):
     embed_var = discord.Embed(title=title, description=description, color=color)
     embed_var.set_footer(text=footer)
     return embed_var
-
-
-def is_active(ctx: discord.ApplicationContext):
-    return ctx.voice_client and (ctx.voice_client.is_playing() or ctx.voice_client.is_paused())
 
 
 # Is called when the bot is asked to leave/clear its storage/refresh its state. Clears song queue, resets loop parameter, etc.
@@ -65,6 +66,21 @@ def cleanup(guild_id: int):
 def find_dict_by_id(list: list[dict[str, str | int | datetime | timedelta]], id: str):
     filtered_list = filter(lambda d: bool(d), list)  # if there are empty dicts in list (error handling purposes), filter those out
     return filter(lambda d: d["id"] == id, filtered_list)
+
+
+async def disconnect_countdown(channel: VocalGuildChannel):
+    countdown = DISCONNECTION_COUNTDOWN // 10
+    while (len(channel.members) == 1 and countdown > 0):
+        countdown -= 1
+        await asyncio.sleep(10)
+
+    if countdown == 0:
+        logging.info("Left the voice channel after feeling lonely.")
+        vc: discord.VoiceClient = list(filter(lambda vc: channel.guild.id == vc.guild.id, bot.voice_clients))[0]
+        cleanup(channel.guild.id)
+        if vc.is_playing() or vc.is_paused():
+            vc.stop()
+        await vc.disconnect()
 
 ##################################################################
 
@@ -98,6 +114,10 @@ ALL_GUILD_CURRENT_SONGS: dict[int, dict[str, str | int | datetime | timedelta]] 
 SONG_MAX_LENGTH_MINUTES = 8
 
 ALL_GUILD_LOOP_SETTINGS: dict[int, int] = {}  # (guild_id: -n | 0 | +n) -> -n: loop infinite, otherwise +n times
+
+
+def is_active(ctx: discord.ApplicationContext):
+    return ctx.voice_client and (ctx.voice_client.is_playing() or ctx.voice_client.is_paused())
 
 
 def current_song_info(ctx: discord.ApplicationContext):
@@ -457,8 +477,8 @@ async def clear_queue(ctx: discord.ApplicationContext):
         await ctx.respond("Queue already empty.")
         return
     
-    ctx.voice_client.stop()
     cleanup(ctx.guild_id)
+    ctx.voice_client.stop()
     
     await ctx.respond("Stopped playback and cleared the queue.")
 
@@ -491,10 +511,20 @@ async def pause(ctx: discord.ApplicationContext):
 ##################################################################
 
 @bot.listen
-async def on_voice_state_update(member, before, after):
+async def on_voice_state_update(member: discord.Member, before: discord.VoiceState, after: discord.VoiceState):
+    if after.channel:
+        if member == bot.user:
+            ALL_GUILD_CURRENT_VOICE_CHANNEL_IDS[after.channel.guild.id] = after.channel.id
+            return
+    
     if not after.channel and member == bot.user:
         guild_id = before.channel.guild.id
         cleanup(guild_id)
+        return
+    
+    if before.channel and before.channel.id == ALL_GUILD_CURRENT_VOICE_CHANNEL_IDS.get(before.channel.guild.id, None):
+        if len(before.channel.members) == 1:
+            bot.loop.create_task(disconnect_countdown(before.channel))
 
 @bot.listen(once=True)
 async def on_ready():
@@ -515,4 +545,3 @@ bot.run(config.DISCORD_TOKEN)
 #TODO: allow playlists, 
 # download der songs async machen, wegen 10s heartbeat block https://stackoverflow.com/questions/65881761/discord-gateway-warning-shard-id-none-heartbeat-blocked-for-more-than-10-second
 # untersuchen, warum ffmpeg -9 bei /skip kommt
-# nach 5 minuten leerer voice bot disconnecten
