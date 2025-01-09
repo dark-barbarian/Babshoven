@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import re
+import time
 
 import discord
 from discord.channel import VocalGuildChannel
@@ -111,7 +112,7 @@ ALL_GUILD_CURRENT_ARCHIVE_IDS: dict[int, str] = {}  # contains entry that's adde
 ALL_GUILD_DOWNLOAD_ARCHIVES: ObservableSet = ObservableSet()
 ALL_GUILD_SONG_QUEUES: dict[int, list[dict[str, str | int | timedelta]]] = {}
 ALL_GUILD_CURRENT_SONGS: dict[int, dict[str, str | int | datetime | timedelta]] = {}
-SONG_MAX_LENGTH_MINUTES = 8
+SONG_MAX_LENGTH_MINUTES = 60
 
 ALL_GUILD_LOOP_SETTINGS: dict[int, int] = {}  # (guild_id: -n | 0 | +n) -> -n: loop infinite, otherwise +n times
 
@@ -318,9 +319,9 @@ async def play(ctx: discord.ApplicationContext, url: str, search_terms: str):
         return 
 
     await ctx.defer()
-    
+    is_vid_too_long = False
     def vid_too_long(info, *, incomplete):
-        global is_vid_too_long
+        nonlocal is_vid_too_long
         is_vid_too_long = False
         duration = info.get('duration')
         if (duration and duration > SONG_MAX_LENGTH_MINUTES * 60):
@@ -332,9 +333,9 @@ async def play(ctx: discord.ApplicationContext, url: str, search_terms: str):
         'format': 'bestaudio/best',
         'logger': YTDLPLogger(guild_id),
         'match_filter': vid_too_long,
+        'ratelimit': 1000,
         'noplaylist': True,
         'paths': {'home': 'downloads/'},
-        'playlist_items': '1',
         'postprocessors': [{
             'key': 'FFmpegExtractAudio',
             'preferredcodec': 'mp3',
@@ -342,34 +343,68 @@ async def play(ctx: discord.ApplicationContext, url: str, search_terms: str):
         }],
         #'verbose': True
     }
-
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        try:
-            info_dict = ydl.extract_info(url or f"ytsearch:{search_terms}")
-        except yt_dlp.utils.DownloadError as e:
-            logging.error(f"Download of video failed: {e}")
-            await ctx.respond("An error occurred. Please try again, and make sure the video is not age-restricted.")
-            return
-        
-        if is_vid_too_long:
-            await ctx.respond(f"Video must be shorter than {SONG_MAX_LENGTH_MINUTES} minutes.")
-            return
-        
-        if search_terms:
+    info_dict, mp3_filename = None, ""
+    
+    async def download_videos():
+        nonlocal info_dict, mp3_filename
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             try:
-                info_dict = info_dict.get('entries')[0]
-            except (AttributeError, IndexError):
-                info_dict = None
-                pass
-        
-        if info_dict:
-            filename = ydl.prepare_filename(info_dict)
-            mp3_filename = filename.rsplit('.', 1)[0] + '.mp3'
+                #info_dict = ydl.extract_info(url or f"ytsearch:{search_terms}")
+                #await asyncio.sleep(60)
+                #tasks = [await asyncio.to_thread(ydl.extract_info, url or f"ytsearch:{search_terms}")]
+                #time.sleep(20)
+                counter = 20
+                while counter > 0:
+                    counter -= 1
+                    print(counter)
+                    time.sleep(1)
+                    
+                raise yt_dlp.utils.DownloadError("ggg")
+                #tasks = [await asyncio.to_thread(time.sleep, 20)]
+                #await asyncio.gather(*tasks)
+                print(len(info_dict))
+            except yt_dlp.utils.DownloadError as e:
+                logging.error(f"Download of video failed: {e}")
+                await ctx.respond("An error occurred. Please try again, and make sure the video is not age-restricted.")
+                return
+            
+            if is_vid_too_long:
+                await ctx.respond(f"Video must be shorter than {SONG_MAX_LENGTH_MINUTES} minutes.")
+                return
+            
+            if search_terms:
+                try:
+                    info_dict = info_dict.get('entries')[0]
+                except (AttributeError, IndexError):
+                    info_dict = None
+                    pass
+            
+            if info_dict:
+                filename = ydl.prepare_filename(info_dict)
+                mp3_filename = filename.rsplit('.', 1)[0] + '.mp3'
 
-            if not os.path.isfile(mp3_filename):
-                os.rename(filename, mp3_filename)
+                if not os.path.isfile(mp3_filename):
+                    os.rename(filename, mp3_filename)
+    # 5 sekunden warten, wenn dann der postprocessing hook noch nicht auf finished ist, nachricht senden und im hintergrund weitermachen
+    #bot.loop.create_task(download_videos())
+    #asyncio.run_coroutine_threadsafe(download_videos(), bot.loop)
+    #done, pending = await asyncio.wait([asyncio.create_task(download_videos())])
+    #ff = asyncio.to_thread(download_videos)
+    #task = asyncio.create_task(ff)
+    #async def test():
+        #await download_videos()
+    #asyncio.run(test())
+    #print(await task.result())
+    async with asyncio.TaskGroup() as tg:
+        task1 = tg.create_task(download_videos())
+    print("hi")
+    #if done:
+    #    print(done)
+    #if pending:
+    #    print(pending)
+    #    print(await asyncio.wait(pending))
 
-    if info_dict:    
+    if info_dict:
         song = {
             'archive_id': ALL_GUILD_CURRENT_ARCHIVE_IDS.get(guild_id, ""),
             'id': info_dict.get("id"),
