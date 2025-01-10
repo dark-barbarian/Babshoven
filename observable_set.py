@@ -13,6 +13,11 @@ class ObservableSet(set):
             self._callback(element)
 
     def add(self, element):
+        print(f'added {element}')
         if element not in self:
             super().add(element)
             self._trigger_callback(element)
+    
+    def discard(self, element):
+        print(f"discarded {element}")
+        return super().discard(element)
