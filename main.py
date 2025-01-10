@@ -76,8 +76,12 @@ async def disconnect_countdown(channel: VocalGuildChannel):
         await asyncio.sleep(10)
 
     if countdown == 0:
+        vc = list(filter(lambda vc: channel.guild.id == vc.guild.id, bot.voice_clients))
+        if len(vc) == 0:
+            logging.info("I tried to leave, but I already was disconnected earlier.")
+            return
         logging.info("Left the voice channel after feeling lonely.")
-        vc: discord.VoiceClient = list(filter(lambda vc: channel.guild.id == vc.guild.id, bot.voice_clients))[0]
+        vc: discord.VoiceClient = vc[0]
         cleanup(channel.guild.id)
         if vc.is_playing() or vc.is_paused():
             vc.stop()
@@ -319,6 +323,77 @@ async def play(ctx: discord.ApplicationContext, url: str, search_terms: str):
         return 
 
     await ctx.defer()
+    # TODO: bei playlists: wenn is_playing() oder vllt wenn queue länge > 0, keine ctx.respond und .edit, er soll im hintergrund die vids laden
+    # ganz am ende bei playlist länge > 1 nochmal ne nachricht "alles geladen und vorbereitet" raushauen (noch ein .respond)
+    download_dict, processing_dict = {}, {}
+    async def download_reporter():
+        await ctx.respond("Started the download!")
+        while download_dict['status'] != 'finished':
+            await asyncio.sleep(5)
+            total_bytes = download_dict.get('total_bytes', download_dict.get('total_bytes_estimate', 1))
+            progress = f"{(download_dict.get('downloaded_bytes', 0) / total_bytes):.0%}" if total_bytes > 1 else "Unknown"
+            await ctx.edit(content=f"- Progress: {progress}\n- ETA: {timedelta(seconds=download_dict.get('eta', 0))}\n- Elapsed time: {str(timedelta(seconds=download_dict['elapsed'])).split('.')[0]}")
+
+    async def processing_reporter():
+        await ctx.edit(content="Download has finished, your song will be played shortly!")
+        counter, pattern = 0, [1, 2, 3, 2]
+        while True:
+            await asyncio.sleep(2)
+            if processing_dict['status'] == 'finished' and processing_dict['postprocessor'] == 'MoveFiles':
+                break  # using break, because the while condition is not always respected for some reason
+            await ctx.edit(content=f"Post-processing{'.' * pattern[counter % 4]}")
+            counter += 1
+        
+    downloading_started, processing_started = False, False
+    def download_hooks(d):
+        nonlocal downloading_started, download_dict
+        download_dict = d
+        if d['status'] == 'downloading':
+            if not downloading_started:
+                bot.loop.create_task(download_reporter())
+                downloading_started = True
+    
+    added_song = {}
+    ydl = None
+    def processing_hooks(d):
+        nonlocal processing_started, processing_dict, added_song, ydl
+        processing_dict = d
+        if d['status'] == 'started':
+            if not processing_started:
+                bot.loop.create_task(processing_reporter())
+                processing_started = True
+        if d['status'] == 'finished' and d['postprocessor'] == 'MoveFiles':
+            # das klappt bei einem song per url. Search terms brauch das info_dict = info_dict.entries[0] von unten
+            # TODO: wird der bumms hier pro video aufgerufen oder pro playlist? und was ist genau im info_dict? immer nur das aktuelle video oder die gesamte playlist bist jetzt?
+            info_dict = d['info_dict']
+            
+            if not info_dict:  # should never happen, but you can't be too careful
+                return
+            
+            if search_terms:  # TODO: checken ob das im playlist fall immer noch so ist mit den entries
+                try:
+                    info_dict = info_dict.get('entries')[0]
+                except (AttributeError, IndexError):
+                    return
+            
+            filename = ydl.prepare_filename(info_dict)
+            mp3_filename = filename.rsplit('.', 1)[0] + '.mp3'
+
+            if not os.path.isfile(mp3_filename):
+                os.rename(filename, mp3_filename)
+            
+            added_song = {
+                'archive_id': ALL_GUILD_CURRENT_ARCHIVE_IDS.get(guild_id, ""),
+                'id': info_dict.get("id"),
+                'filename': mp3_filename,
+                'title': info_dict.get('title'),
+                'video_link': info_dict.get('webpage_url'),
+                'duration_string': info_dict.get('duration_string'),
+                'duration': info_dict.get('duration')
+            }
+            ALL_GUILD_SONG_QUEUES[guild_id].append(added_song)
+                
+    
     is_vid_too_long = False
     def vid_too_long(info, *, incomplete):
         nonlocal is_vid_too_long
@@ -327,26 +402,17 @@ async def play(ctx: discord.ApplicationContext, url: str, search_terms: str):
         if (duration and duration > SONG_MAX_LENGTH_MINUTES * 60):
             is_vid_too_long = True
             return f"'{info.get('title')}' is too long"
-    
-    def download_hooks(d):
-        if d['status'] == 'finished':
-            print('downloading finished')
-    
-    def processing_hooks(d):
-        if d['status'] == 'finished' and d['postprocessor'] == 'MoveFiles':
-            # TODO: add to queue d['info_dict']
-            print('processing finished', d['postprocessor'])
 
     ydl_opts = {
         'download_archive': ALL_GUILD_DOWNLOAD_ARCHIVES,
         'format': 'bestaudio/best',
         'logger': YTDLPLogger(guild_id),
         'match_filter': vid_too_long,
-        #'ratelimit': 10000,
+        #'ratelimit': 500000,
         'noplaylist': True,
         'paths': {'home': 'downloads/'},
-        #'progress_hooks': [download_hooks],
-        #'postprocessor_hooks': [processing_hooks],
+        'progress_hooks': [download_hooks],
+        'postprocessor_hooks': [processing_hooks],
         'postprocessors': [{
             'key': 'FFmpegExtractAudio',
             'preferredcodec': 'mp3',
@@ -356,133 +422,45 @@ async def play(ctx: discord.ApplicationContext, url: str, search_terms: str):
         #TODO: add hooks to call when downloads/porecessing is finished and the vid can be added to queue
         #TODO: vermutlich kommt alle paar sekunden ne nachricht dass der playlist ein song hinzugefügt wurde. Möglichkeit finden, das abzubrechen oder von vornherein max anzahl angeben
     }
-    #info_dict, mp3_filename = None, ""
     
     def download_videos():
+        nonlocal ydl
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            return ydl.extract_info(url or f"ytsearch:{search_terms}"), ydl
-        #counter = 20
-        #while counter > 0:
-            #print(counter)
-            #counter -= 1
-            #time.sleep(1)
+            ydl.extract_info(url or f"ytsearch:{search_terms}")
     
     try:
-        print("vorher")
-        info_dict, ydl = await asyncio.to_thread(download_videos)
-        
-        #await asyncio.to_thread(download_videos)
-        print('nachher')
+        await asyncio.to_thread(download_videos)
     except yt_dlp.utils.DownloadError as e:
         logging.error(f"Download of video failed: {e}")
         await ctx.respond("An error occurred. Please try again, and make sure the video is not age-restricted.")
         #TODO: playlist behavoir: what happens with errors in the playlist? -> desired: skip after 1 error
+        #TODO: what happens when an additional /play is entered while the bot is downloading?
         return
     
     if is_vid_too_long:
+        # TODO: check playlist behavior
         await ctx.respond(f"Video must be shorter than {SONG_MAX_LENGTH_MINUTES} minutes.")
         return
     
-    if search_terms:
-        try:
-            info_dict = info_dict.get('entries')[0]
-        except (AttributeError, IndexError):
-            info_dict = None
-            pass
+    # TODO: sammel alle IDs bei denen es bereits im archive ist (über den console output)
+    # hier am ende alle geblockten IDs durchgehen und die in die Queue packen, wenn sie noch gedownloaded sind (checken)
+    # in einer playlist sollte ein geblockter song einfach übergangen werden, als einzelvideo muss ne extra nachricht kommen
+    already_downloaded = ALL_GUILD_DOWNLOAD_IDS.get(guild_id, [])  # TODO: auf dict[int, list[str]] umschreiben, das die neue id appended bekommt. am ende von /play liste leeren.
     
-    if info_dict:
-        filename = ydl.prepare_filename(info_dict)
-        mp3_filename = filename.rsplit('.', 1)[0] + '.mp3'
-
-        if not os.path.isfile(mp3_filename):
-            os.rename(filename, mp3_filename)
     
-    async def handle_downloaded_videos():
-        #nonlocal info_dict, mp3_filename
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            try:
-                #info_dict = ydl.extract_info(url or f"ytsearch:{search_terms}")
-                #await asyncio.sleep(60)
-                #tasks = [await asyncio.to_thread(ydl.extract_info, url or f"ytsearch:{search_terms}")]
-                #time.sleep(20)
-                counter = 20
-                while counter > 0:
-                    counter -= 1
-                    print(counter)
-                    await time.sleep(1)
-                    
-                raise yt_dlp.utils.DownloadError("ggg")
-                #tasks = [await asyncio.to_thread(time.sleep, 20)]
-                #await asyncio.gather(*tasks)
-                print(len(info_dict))
-            except yt_dlp.utils.DownloadError as e:
-                logging.error(f"Download of video failed: {e}")
-                #await ctx.respond("An error occurred. Please try again, and make sure the video is not age-restricted.")
-                return
-            
-            if is_vid_too_long:
-                #await ctx.respond(f"Video must be shorter than {SONG_MAX_LENGTH_MINUTES} minutes.")
-                return
-            
-            if search_terms:
-                try:
-                    info_dict = info_dict.get('entries')[0]
-                except (AttributeError, IndexError):
-                    info_dict = None
-                    pass
-            
-            if info_dict:
-                filename = ydl.prepare_filename(info_dict)
-                mp3_filename = filename.rsplit('.', 1)[0] + '.mp3'
-
-                if not os.path.isfile(mp3_filename):
-                    os.rename(filename, mp3_filename)
-    # 5 sekunden warten, wenn dann der postprocessing hook noch nicht auf finished ist, nachricht senden und im hintergrund weitermachen
-    #bot.loop.create_task(download_videos())
-    #asyncio.run_coroutine_threadsafe(download_videos(), bot.loop)
-    #done, pending = await asyncio.wait([asyncio.create_task(download_videos())])
-    #ff = await asyncio.to_thread(download_videos)
-    #await download_videos()
-    #task = asyncio.create_task(ff)
-    #async def test():
-        #await download_videos()
-    #asyncio.run(test())
-    #print(await task.result())
-    #async with asyncio.TaskGroup() as tg:
-        #task1 = tg.create_task(download_videos())
-    #await bot.loop.run_in_executor(None, download_videos) #geht wenn download_videos nicht async ist
-    print("hi")
-    #if done:
-    #    print(done)
-    #if pending:
-    #    print(pending)
-    #    print(await asyncio.wait(pending))
-
-    if info_dict:
-        song = {
-            'archive_id': ALL_GUILD_CURRENT_ARCHIVE_IDS.get(guild_id, ""),
-            'id': info_dict.get("id"),
-            'filename': mp3_filename,
-            'title': info_dict.get('title'),
-            'video_link': info_dict.get('webpage_url'),
-            'duration_string': info_dict.get('duration_string'),
-            'duration': info_dict.get('duration')
-        }
-        ALL_GUILD_SONG_QUEUES[guild_id].append(song)
-    else:
-        # info_dict is None, most likely due to download_archive blocking the download. Search the queue and use the song info that's already there
-        song = list(find_dict_by_id(ALL_GUILD_SONG_QUEUES.get(guild_id, []) + [ALL_GUILD_CURRENT_SONGS.get(guild_id, {})],
-                                    ALL_GUILD_DOWNLOAD_IDS.get(guild_id, "")))
-        if len(song) == 0:  # function hasn't found anything. Abort.
-            await ctx.respond("An error occurred. Please try again, and optionally clear the queue.")
-            return
-        song = song[0]
-        ALL_GUILD_SONG_QUEUES[guild_id].append(song)
+    # info_dict is None, most likely due to download_archive blocking the download. Search the queue and use the song info that's already there
+    added_song = list(find_dict_by_id(ALL_GUILD_SONG_QUEUES.get(guild_id, []) + [ALL_GUILD_CURRENT_SONGS.get(guild_id, {})],
+                                ALL_GUILD_DOWNLOAD_IDS.get(guild_id, "")))
+    if len(added_song) == 0:  # function hasn't found anything. Abort.
+        await ctx.edit(content="An error occurred. Please try again, and optionally clear the queue.")
+        return
+    added_song = added_song[0]
+    ALL_GUILD_SONG_QUEUES[guild_id].append(added_song)
     
     if len(ALL_GUILD_SONG_QUEUES[guild_id]) == 1 and not is_active(ctx):
-        await ctx.respond(f"Queue is empty, [{song['title']}]({song["video_link"]}) is about to be played.")
+        await ctx.edit(content=f"Queue is empty, [{added_song['title']}]({added_song["video_link"]}) is about to be played.")
     else:
-        await ctx.respond(f"[{song['title']}]({song["video_link"]}) was added to the queue at position **{len(ALL_GUILD_SONG_QUEUES[guild_id]) + 1}**.")
+        await ctx.edit(content=f"[{added_song['title']}]({added_song["video_link"]}) was added to the queue at position **{len(ALL_GUILD_SONG_QUEUES[guild_id]) + 1}**.")
 
     if ctx.voice_client and not is_active(ctx):
         await play_next(ctx)
@@ -632,5 +610,4 @@ async def on_ready():
 bot.run(config.DISCORD_TOKEN)
 
 #TODO: allow playlists, 
-# download der songs async machen, wegen 10s heartbeat block https://stackoverflow.com/questions/65881761/discord-gateway-warning-shard-id-none-heartbeat-blocked-for-more-than-10-second
 # untersuchen, warum ffmpeg -9 bei /skip kommt
