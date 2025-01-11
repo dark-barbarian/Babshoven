@@ -42,7 +42,7 @@ logging.basicConfig(level=logging.INFO, format='[%(asctime)s] [%(levelname)s]: %
     logging.StreamHandler()
 ])
 
-bot = commands.Bot()
+bot = commands.Bot(owner_id=191530044491956224)
 
 ##################################################################
 ############################ GENERAL #############################
@@ -99,10 +99,41 @@ async def disconnect_countdown(channel: VocalGuildChannel):
 async def ping(ctx: discord.ApplicationContext):
     await ctx.respond(f"Latency: {round(bot.latency * 1000)} ms")
 
+@bot.slash_command(
+    name="override_limits",
+    description="Override the limits of this bot (owner only)"
+)
+@option(
+    "max_song_length", 
+    description="Maximum song length in minutes",
+    required=False,
+    input_type=int
+)
+@option(
+    "playlist_limit", 
+    description="Maximum number of songs in a playlist",
+    required=False,
+    input_type=int
+)
+@commands.is_owner()
+async def override_limits(ctx: discord.ApplicationContext, max_song_length: int, playlist_limit: int):
+    global SONG_MAX_LENGTH_MINUTES, PLAYLIST_VIDEOS_LIMIT
+    if max_song_length:
+        await ctx.respond(f"Changed maximum song duration from {SONG_MAX_LENGTH_MINUTES} to {max_song_length}!")
+        SONG_MAX_LENGTH_MINUTES = max_song_length
+    if playlist_limit:
+        await ctx.respond(f"Changed maximum number of videos per playlist from {PLAYLIST_VIDEOS_LIMIT} to {playlist_limit}!")
+        PLAYLIST_VIDEOS_LIMIT = playlist_limit
+    if not (max_song_length or playlist_limit):
+        await ctx.respond("You need to specify at least one option.")
+
 @bot.event
 async def on_application_command_error(ctx: discord.ApplicationContext, error: discord.DiscordException):
-    logging.error(error)
-    raise error
+    if isinstance(error, commands.NotOwner):
+        await ctx.respond("Sorry, only the bot owner can use this command!")
+    else:
+        logging.error(error)
+        raise error
 
 ##################################################################
 ######################### MUSIC METHODS ##########################
@@ -118,6 +149,7 @@ ALL_GUILD_DOWNLOAD_IDS: dict[int, list[str]] = {}  # contains ids of all songs t
 ALL_GUILD_DOWNLOAD_ARCHIVES: ObservableSet = ObservableSet()
 ALL_GUILD_SONG_QUEUES: dict[int, list[dict[str, str | int | datetime | timedelta]]] = {}
 SONG_MAX_LENGTH_MINUTES = 60
+PLAYLIST_VIDEOS_LIMIT = 50
 added_song = {}
 
 ALL_GUILD_LOOP_SETTINGS: dict[int, int] = {}  # (guild_id: -n | 0 | +n) -> -n: loop infinite, otherwise +n times
@@ -287,7 +319,15 @@ async def volume(ctx: discord.ApplicationContext, value: int):
     description="Search for a YouTube video",
     required=False
 )
-async def play(ctx: discord.ApplicationContext, url: str, search_terms: str):
+@option(
+    "playlist_limit", 
+    description=f"Don't load more than <...> videos for this playlist, default is {PLAYLIST_VIDEOS_LIMIT}",
+    required=False,
+    input_type=int,
+    min_value=1,
+    max_value=50
+)
+async def play(ctx: discord.ApplicationContext, url: str, search_terms: str, playlist_limit: int = (PLAYLIST_VIDEOS_LIMIT+1)):
     global added_song
     guild_id = ctx.guild_id
     added_song = {}
@@ -337,31 +377,61 @@ async def play(ctx: discord.ApplicationContext, url: str, search_terms: str):
     # ganz am ende bei playlist länge > 1 nochmal ne nachricht "alles geladen und vorbereitet" raushauen (noch ein .respond)
     download_dict, processing_dict = {}, {}
     downloading_started, processing_started = False, False
+    followup_message = None
     async def download_reporter():
-        nonlocal downloading_started
-        await ctx.edit(content="Started the download!")
+        nonlocal downloading_started, followup_message
+        message = followup_message or ctx
+        if isinstance(followup_message, discord.WebhookMessage):
+            await message.edit(content="Started downloading the next video!")
+        elif followup_message:
+            followup_message = await ctx.send_followup("Started downloading the next video!", wait=True)
+            message = followup_message
+        else:
+            await message.edit(content="Started downloading!")
         while True:
             await asyncio.sleep(1)
             if download_dict['status'] == 'finished':
                 break
             total_bytes = download_dict.get('total_bytes', download_dict.get('total_bytes_estimate', 1))
             progress = f"{(download_dict.get('downloaded_bytes', 0) / total_bytes):.0%}" if total_bytes > 1 else "Unknown"
-            await ctx.edit(content=f"- Progress: {progress}\n- Time left (estimate): {timedelta(seconds=download_dict.get('eta', 0))}\n- Elapsed time: {str(timedelta(seconds=download_dict['elapsed'])).split('.')[0]}")
+            await message.edit(content=f"- Progress: {progress}\n- Time left (estimate): {timedelta(seconds=download_dict.get('eta', 0))}\n- Elapsed time: {str(timedelta(seconds=download_dict['elapsed'])).split('.')[0]}")
             await asyncio.sleep(4)
+        downloading_started = False
 
     async def processing_reporter():
-        nonlocal processing_started
-        await ctx.edit(content="Download has finished, finalizing...")
+        nonlocal processing_started, followup_message
+        
+        sleep_duration = 0
+        while followup_message and not isinstance(followup_message, discord.WebhookMessage):
+            await asyncio.sleep(0.1)
+            sleep_duration += 0.1
+            if sleep_duration >= 5:  # safeguard, don't wait too long in case of bugs/errors
+                logging.error("followup_message was never assigned properly. No longer wait for it to change.")
+                return
+        
+        message = followup_message or ctx
+        await message.edit(content="Download has finished, finalizing...")
         counter, pattern = 0, [1, 2, 3, 2]
         while True:
             await asyncio.sleep(1)
             if processing_dict['status'] == 'finished' and processing_dict['postprocessor'] == 'MoveFiles':
                 break
-            await ctx.edit(content=f"Download has finished, finalizing{'.' * pattern[counter % 4]}")
+            await message.edit(content=f"Download has finished, finalizing{'.' * pattern[counter % 4]}")
             counter += 1
-            #await asyncio.sleep(1)
+        processing_started = False
         
-        await asyncio.sleep(0.1)  # small delay to make sure added_song is populated
+        if followup_message:  # Don't print song info if we're at index >= 2 of playlist
+            return
+        followup_message = True  # if we're calling the download_reporter again, the followup_message should be active
+        
+        sleep_duration = 0
+        while not added_song:
+            await asyncio.sleep(0.1)
+            sleep_duration += 0.1
+            if sleep_duration >= 5:  # safeguard, don't wait too long in case of bugs/errors
+                logging.error("added_song wasn't populated in time. No longer wait for it to change.")
+                await ctx.edit(content=f"Error upon adding your song(s) to the queue. Please try again.")
+                return
         if len(ALL_GUILD_SONG_QUEUES[guild_id]) == 1:
             await ctx.edit(content=f"Queue is empty, [{added_song['title']}]({added_song["video_link"]}) started to play.")
         else:
@@ -428,9 +498,9 @@ async def play(ctx: discord.ApplicationContext, url: str, search_terms: str):
         'logger': YTDLPLogger(guild_id),
         'match_filter': vid_too_long,
         #'ratelimit': 250000,
-        'noplaylist': True, #TODO: option true/false draus machen, was der user eingeben kann
+        'noplaylist': True if search_terms else False,
         'paths': {'home': 'downloads/'},
-        'playlist_items': '0,1,2',
+        'playlist_items': str(list(range(playlist_limit))).replace(' ', '')[1:-1],
         'progress_hooks': [download_hooks],
         'postprocessor_hooks': [processing_hooks],
         'postprocessors': [{
@@ -495,10 +565,14 @@ async def play(ctx: discord.ApplicationContext, url: str, search_terms: str):
         entries_actual = len(info_dict.get('entries', []))
         #TODO: beim 2. video einer playlist, die download updates in eine extra ctx.respond packen.
         #/queue n marker geben, der anzeigt, das gerade noch runtergeladen wird? kann gecleared werden, wenn hier angekommen
-        response = f"Finished downloading the playlist. {entries_actual} / {entries_should} videos were added to the queue."
+        response = f"Finished downloading the playlist. {entries_actual} / {entries_should} songs were added to the queue."
+        #TODO: auf entries_acutal die ausm archive draufaddieren, weil die ja nicht gedownloaded werden
         if entries_actual < entries_should:
-            response += f"\n\nMake sure that no video is longer than _{SONG_MAX_LENGTH_MINUTES} minutes or age-restricted_."
-        await ctx.respond(response)
+            response += f"\n\nMake sure that no song is longer than **{SONG_MAX_LENGTH_MINUTES} minutes or age-restricted**."
+        if isinstance(followup_message, discord.WebhookMessage):  # responded to its initial message earlier in the download process, edit the response
+            await followup_message.edit(content=response)
+        else:
+            await ctx.respond(response)
     
     if len(added_song) == 0:  # TODO: funktnioniert für 1 video, aber nicht bei playlists, da hier added_song beschrieben wird. Falls Fehler da war, am ende ne meldung raushauen
         await ctx.edit(content="There were errors downloading your video(s). Please try again.")
@@ -636,9 +710,9 @@ async def on_voice_state_update(member: discord.Member, before: discord.VoiceSta
         cleanup(guild_id)
         return
     
-    if before.channel and before.channel.id == ALL_GUILD_CURRENT_VOICE_CHANNEL_IDS.get(before.channel.guild.id, None):
-        if len(before.channel.members) == 1:
-            bot.loop.create_task(disconnect_countdown(before.channel))
+    if (before.channel and before.channel.id == ALL_GUILD_CURRENT_VOICE_CHANNEL_IDS.get(before.channel.guild.id, None) and
+        len(before.channel.members) == 1 and before.channel.members[0] == bot.user):
+        bot.loop.create_task(disconnect_countdown(before.channel))
 
 @bot.listen(once=True)
 async def on_ready():
