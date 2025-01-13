@@ -256,7 +256,6 @@ async def play_next(ctx: discord.ApplicationContext):
         cleanup(guild_id)
         if is_active(ctx):
             ctx.voice_client.stop()
-        await ctx.respond("An error occurred and the queue has been deleted. Please try again.")
         return
     
     
@@ -271,7 +270,7 @@ async def play_next(ctx: discord.ApplicationContext):
     description="Leave the voice channel"
 )
 async def leave(ctx: discord.ApplicationContext):
-    if ctx.voice_client:
+    if ctx.voice_client and ctx.voice_client.is_connected():
         await ctx.voice_client.disconnect()
         await ctx.respond("Left the voice channel.")
     else:
@@ -346,7 +345,7 @@ async def stop_downloading(ctx: discord.ApplicationContext):
 
 @bot.slash_command(
     name="play",
-    description="Add a YouTube video to the queue or resume paused playback (if both parameters are left empty)"
+    description="Add a YouTube video to the queue or resume paused playback (if all parameters are left empty)"
 )
 @option(
     "url", 
@@ -360,18 +359,22 @@ async def stop_downloading(ctx: discord.ApplicationContext):
 )
 @option(
     "playlist_limit", 
-    description=f"Don't load more than <...> videos for this playlist, default is {PLAYLIST_VIDEOS_LIMIT}",
+    description=f"Don't load more than <...> videos for this playlist, default iis {PLAYLIST_VIDEOS_LIMIT}",
     required=False,
     input_type=int,
     min_value=1,
-    max_value=50
+    max_value=50,
+    default=PLAYLIST_VIDEOS_LIMIT
 )
-async def play(ctx: discord.ApplicationContext, url: str, search_terms: str, playlist_limit: int = (PLAYLIST_VIDEOS_LIMIT + 1)):
+#TODO: playlist_limit wird nicht vom globalen überschrieben, vermutlich in der funktion selbst ein limit = limit or LIMIT
+async def play(ctx: discord.ApplicationContext, url: str, search_terms: str, playlist_limit: int):
+    print(playlist_limit, PLAYLIST_VIDEOS_LIMIT)
     global added_song
     guild_id = ctx.guild_id
     added_song = {}
     counter_for_added_songs = 0
     responded = False  # set to true for ctx.respond's that do not return immediately after
+    silent_mode = False  # whether to respond with updates, is turned on when re-downloading videos in a playlist
     
     def add_archive_id(element: str):
         added_song["archive_id"] = element
@@ -386,17 +389,17 @@ async def play(ctx: discord.ApplicationContext, url: str, search_terms: str, pla
 
     if ctx.author.voice:
         channel = ctx.author.voice.channel
-        if ctx.voice_client:
+        if ctx.voice_client and ctx.voice_client.is_connected():
             if channel != ctx.voice_client.channel:
-                if not url and not search_terms and is_active(ctx):
+                if url or search_terms or is_active(ctx):
                     await ctx.voice_client.move_to(channel)
-                    if ctx.voice_client.is_playing():
+                    if not (url or search_terms):
                         await ctx.respond("Continuing playback in your new voice channel!")
                         return
         else:
             if url or search_terms:
                 try:
-                    await asyncio.wait_for(channel.connect(), timeout=2)
+                    await channel.connect(timeout=2)
                 except asyncio.TimeoutError as e:
                     logging.error(f"An error occured while connecting to the voice channel: {e}")
                     await ctx.respond("I couldn't join your voice channel. Please check my permissions and try again.")
@@ -494,6 +497,8 @@ async def play(ctx: discord.ApplicationContext, url: str, search_terms: str, pla
             await ctx.edit(content=f"[{added_song['title']}]({added_song["video_link"]}) was added to the queue at position **{len(ALL_GUILD_SONG_QUEUES[guild_id])}**.")
     
     def download_hooks(d):
+        if silent_mode:
+            return
         nonlocal downloading_started, download_dict, responded
         download_dict = d
         if d['status'] == 'downloading':
@@ -508,7 +513,7 @@ async def play(ctx: discord.ApplicationContext, url: str, search_terms: str, pla
         nonlocal processing_started, processing_dict, ydl, counter_for_added_songs
         processing_dict = d
         if d['status'] == 'started':
-            if not processing_started:
+            if not processing_started and not silent_mode:
                 bot.loop.create_task(processing_reporter())
                 processing_started = True
         if d['status'] == 'finished' and d['postprocessor'] == 'MoveFiles':
@@ -555,7 +560,7 @@ async def play(ctx: discord.ApplicationContext, url: str, search_terms: str, pla
         #'ratelimit': 250000,
         'noplaylist': True if search_terms else False,
         'paths': {'home': 'downloads/'},
-        'playlist_items': str(list(range(playlist_limit))).replace(' ', '')[1:-1],
+        'playlist_items': str(list(range(playlist_limit + 1))).replace(' ', '')[1:-1],
         'postprocessor_hooks': [processing_hooks],
         'postprocessors': [{
             'key': 'FFmpegExtractAudio',
@@ -602,7 +607,7 @@ async def play(ctx: discord.ApplicationContext, url: str, search_terms: str, pla
     print(already_downloaded, all_songs, add_to_queue)
     del ALL_GUILD_DOWNLOAD_IDS[guild_id]
     #filter(lambda s: bool(find_dict_by_id(all_songs, s)), already_downloaded)
-    
+
     was_error = True
     for song in add_to_queue:
         if song.get("archive_id") in ALL_GUILD_DOWNLOAD_ARCHIVES:  # song is still present in the downloads
@@ -612,8 +617,10 @@ async def play(ctx: discord.ApplicationContext, url: str, search_terms: str, pla
             was_error = False
         else:  # song is not downloaded anymore by the time execution arrived here, re-download it
             try: # TODO: suppress messages? and check if re-download works
-                pass
-                #await asyncio.to_thread(download_videos(f"https://www.youtube.com/watch?v={song['id']}"))
+                silent_mode = True
+                print("vorher")
+                await asyncio.to_thread(download_videos, f"https://www.youtube.com/watch?v={song['id']}")
+                print("nachher")
                 was_error = False
             except yt_dlp.utils.DownloadError as e:
                 logging.error(f"Download of video failed: {e}")
@@ -622,7 +629,7 @@ async def play(ctx: discord.ApplicationContext, url: str, search_terms: str, pla
     if was_cancelled or (info_dict and (playlist_count := info_dict.get('playlist_count', 0)) > 1):
         response = (f"Finished downloading the playlist. {counter_for_added_songs}{"" if was_cancelled else (f" / {playlist_count}")} " +
                     "songs were added to the queue.")
-        if not was_cancelled and counter_for_added_songs < playlist_count:
+        if not was_cancelled and counter_for_added_songs < playlist_count and counter_for_added_songs < playlist_limit:
             response += f"\n\nAn error occurred. Make sure that no song is longer than **{SONG_MAX_LENGTH_MINUTES} minutes or age-restricted**, and try again."
         if isinstance(followup_message, discord.WebhookMessage):  # responded to its initial message earlier in the download process, edit the response
             await followup_message.edit(content=response)
@@ -633,7 +640,11 @@ async def play(ctx: discord.ApplicationContext, url: str, search_terms: str, pla
     print(responded)
     if not responded:
         if not was_error and len(add_to_queue) > 0:
-            await ctx.respond(f"[{add_to_queue[0]['title']}]({add_to_queue[0]["video_link"]}) was added to the queue at position **{len(ALL_GUILD_SONG_QUEUES[guild_id])}**.")
+            queue_length = len(ALL_GUILD_SONG_QUEUES[guild_id])
+            if queue_length == 1:
+                await ctx.edit(content=f"Queue is empty, [{add_to_queue[0]['title']}]({add_to_queue[0]["video_link"]}) started to play.")
+            else:
+                await ctx.respond(f"[{add_to_queue[0]['title']}]({add_to_queue[0]["video_link"]}) was added to the queue at position **{queue_length}**.")
             return
         await ctx.respond("There were errors downloading your song(s). Please try again, and make sure that no song is longer " +
                                     f"than **{SONG_MAX_LENGTH_MINUTES} minutes or age-restricted**.")
@@ -706,7 +717,7 @@ async def queue(ctx: discord.ApplicationContext):
         song = ALL_GUILD_SONG_QUEUES[ctx.guild_id][i]
 
         if i == cutoff:
-            response += f"- ...{len(ALL_GUILD_SONG_QUEUES[ctx.guild_id]) - cutoff} more song(s)."
+            response += f"- ...{len(ALL_GUILD_SONG_QUEUES[ctx.guild_id]) - cutoff} more song(s).\n"
             break
 
         duration_string = song["duration_string"]
@@ -720,7 +731,7 @@ async def queue(ctx: discord.ApplicationContext):
         response += f"- [{song["title"]}](<{song["video_link"]}>) - ({placeholder} / {duration_string})\n"
         
     if ALL_GUILD_ACTIVE_DOWNLOAD_MARKERS.get(ctx.guild_id, False):
-        response += "..._more songs are currently being downloaded..."
+        response += "\n..._more songs are currently being downloaded_..."
     
     await ctx.respond(response)
 
@@ -798,9 +809,6 @@ async def on_ready():
 
 bot.run(config.DISCORD_TOKEN)
 
-#TODO: allow playlists, 
 # untersuchen, warum ffmpeg -9 bei /skip kommt
-#TODO: tests: 1 video hinzufügen, playlist hinzufügen, 1 neues video nach video hinzufügen, das gleiche video nach video hinzufügen, 1 neues video nach playlist hinzufügen,
 # ein video der playlist erneut einfügen, playlist nach video hinzufügen, commands wie loop/volume/skip checken
 # namen der variablen korrigieren (constants etc., private markieren), gucken ob ' und " vereinheitlicht werden sollten
-# TODO: error handling wenn permissions fehlen (kann nicht joinen, channel nicht sehen, etc.)

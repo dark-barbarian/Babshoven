@@ -1,0 +1,58 @@
+{
+    "id": "PL2A8F9VO2BGOfscj5dBSmHNGCE0SoOSHG",
+    "title": "NieR Re[in]carnation Official Soundtrack",
+    "availability": null,
+    "channel_follower_count": null,
+    "description": "Original soundtracks of NieR Re[in]carnation, the first mobile entry in the NieR series. Preregister via App Store and Google Play!\n\nApp Store: https://sqex.link/s69\nGoogle Play: https://sqex.link/f4t",
+    "tags": [],
+    "thumbnails": [
+        {
+            "url": "https://i.ytimg.com/vi/2ZAIcASzxZg/hqdefault.jpg?sqp=-oaymwEWCKgBEF5IWvKriqkDCQgBFQAAiEIYAQ==&rs=AOn4CLDfU3JnUb8-4EuQuQDWAa7PUIqgpQ",
+            "height": 94,
+            "width": 168,
+            "id": "0",
+            "resolution": "168x94"
+        },
+        {
+            "url": "https://i.ytimg.com/vi/2ZAIcASzxZg/hqdefault.jpg?sqp=-oaymwEWCMQBEG5IWvKriqkDCQgBFQAAiEIYAQ==&rs=AOn4CLCGZjMJJdhdb3ZDcICQQuSSoldhfA",
+            "height": 110,
+            "width": 196,
+            "id": "1",
+            "resolution": "196x110"
+        },
+        {
+            "url": "https://i.ytimg.com/vi/2ZAIcASzxZg/hqdefault.jpg?sqp=-oaymwEXCPYBEIoBSFryq4qpAwkIARUAAIhCGAE=&rs=AOn4CLDz9pf3z86L_DPxlj3sMUN37NHOjA",
+            "height": 138,
+            "width": 246,
+            "id": "2",
+            "resolution": "246x138"
+        },
+        {
+            "url": "https://i.ytimg.com/vi/2ZAIcASzxZg/hqdefault.jpg?sqp=-oaymwEXCNACELwBSFryq4qpAwkIARUAAIhCGAE=&rs=AOn4CLCEYuPSpcEzNVkXd-PPmsxdwraNSg",
+            "height": 188,
+            "width": 336,
+            "id": "3",
+            "resolution": "336x188"
+        }
+    ],
+    "modified_date": "20210601",
+    "view_count": 33149,
+    "playlist_count": 5,
+    "channel": "Square Enix",
+    "channel_id": "UCA5SLTAVA6unn1M-6lbo1NA",
+    "uploader_id": "@squareenixna",
+    "uploader": "Square Enix",
+    "channel_url": "https://www.youtube.com/channel/UCA5SLTAVA6unn1M-6lbo1NA",
+    "uploader_url": "https://www.youtube.com/@squareenixna",
+    "_type": "playlist",
+    "entries": [],
+    "extractor_key": "YoutubeTab",
+    "extractor": "youtube:tab",
+    "webpage_url": "https://www.youtube.com/playlist?list=PL2A8F9VO2BGOfscj5dBSmHNGCE0SoOSHG",
+    "original_url": "https://www.youtube.com/watch?v=2ZAIcASzxZg&list=PL2A8F9VO2BGOfscj5dBSmHNGCE0SoOSHG&index=1&pp=iAQB8AUB",
+    "webpage_url_basename": "playlist",
+    "webpage_url_domain": "youtube.com",
+    "release_year": null,
+    "requested_entries": [],
+    "epoch": 1736735532
+}
