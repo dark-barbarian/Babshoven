@@ -123,7 +123,7 @@ async def ping(ctx: discord.ApplicationContext):
 @commands.is_owner()
 async def override_limits(ctx: discord.ApplicationContext, max_song_length: int, playlist_limit: int):
     if not (max_song_length or playlist_limit):
-        await ctx.respond("You need to specify at least one option.")
+        await ctx.respond("You need to specify at least one option.", ephemeral=True)
         return
     
     await ctx.defer()
@@ -147,7 +147,7 @@ async def override_limits(ctx: discord.ApplicationContext, max_song_length: int,
 @bot.event
 async def on_application_command_error(ctx: discord.ApplicationContext, error: discord.DiscordException):
     if isinstance(error, commands.NotOwner):
-        await ctx.respond("Sorry, only the bot owner can use this command!")
+        await ctx.respond("Sorry, only the bot owner can use this command!", ephemeral=True)
     elif isinstance(error, commands.NoPrivateMessage):
         await ctx.respond("Sorry, this command can't be used in a DM!")
     else:
@@ -283,7 +283,7 @@ async def leave(ctx: discord.ApplicationContext):
         await ctx.voice_client.disconnect()
         await ctx.respond("Left the voice channel.")
     else:
-        await ctx.respond("I am not in a voice channel!")
+        await ctx.respond("I am not in a voice channel!", ephemeral=True)
 
 @bot.slash_command(
     name="volume",
@@ -339,7 +339,7 @@ async def volume(ctx: discord.ApplicationContext, value: int):
 @commands.guild_only()
 async def stop_downloading(ctx: discord.ApplicationContext):
     if not _all_guild_active_download_markers.get(ctx.guild_id, False):
-        await ctx.respond("No songs are being downloaded right now.")
+        await ctx.respond("No songs are being downloaded right now.", ephemeral=True)
         return
     
     global _stop_downloading_interaction
@@ -425,7 +425,7 @@ async def play(ctx: discord.ApplicationContext, url: str, search_terms: str, pla
             _all_guild_song_queues[guild_id][0]["starting_time"] = datetime.now() - _all_guild_song_queues[guild_id][0]["passed_time_until_pause"]
             await ctx.respond("Playback resumed.")
         else:
-            await ctx.respond("No audio is currently paused.")
+            await ctx.respond("No audio is currently paused.", ephemeral=True)
         return
     
     if url and re.search(r"^(?:https?:\/\/(?:www\.)?)?(?:(?:youtube\.com)|(?:youtu\.be))", url) is None:
@@ -665,7 +665,7 @@ async def play(ctx: discord.ApplicationContext, url: str, search_terms: str, pla
 @commands.guild_only()
 async def loop(ctx: discord.ApplicationContext, max_times: int):
     if not is_active(ctx):
-        await ctx.respond("There is nothing to loop.")
+        await ctx.respond("There is nothing to loop.", ephemeral=True)
         return
     
     loops = _all_guild_loop_settings.get(ctx.guild_id, 0)
@@ -684,7 +684,7 @@ async def loop(ctx: discord.ApplicationContext, max_times: int):
 @commands.guild_only()
 async def info(ctx: discord.ApplicationContext):
     if not is_active(ctx):
-        await ctx.respond("There is no song currently playing.")
+        await ctx.respond("There is currently no song playing.")
         return
     
     response = current_song_info(ctx)
@@ -737,7 +737,7 @@ async def queue(ctx: discord.ApplicationContext):
 @commands.guild_only()
 async def clear_queue(ctx: discord.ApplicationContext):
     if not is_active(ctx):
-        await ctx.respond("Queue already empty.")
+        await ctx.respond("Queue is already empty.", ephemeral=True)
         return
     
     cleanup(ctx.guild_id)
@@ -756,7 +756,7 @@ async def skip(ctx: discord.ApplicationContext):
         ctx.voice_client.stop()
         await ctx.respond("Song skipped.")
     else:
-        await ctx.respond("No audio is currently playing.")
+        await ctx.respond("No audio is currently playing.", ephemeral=True)
 
 @bot.slash_command(
     name="pause",
@@ -769,7 +769,7 @@ async def pause(ctx: discord.ApplicationContext):
         _all_guild_song_queues[ctx.guild_id][0]["passed_time_until_pause"] = datetime.now() - _all_guild_song_queues[ctx.guild_id][0]["starting_time"]
         await ctx.respond("Playback paused.")
     else:
-        await ctx.respond("No audio is currently playing.")
+        await ctx.respond("No audio is currently playing.", ephemeral=True)
 
 ##################################################################
 ############################ RUN BOT #############################
