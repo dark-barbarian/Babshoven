@@ -456,8 +456,9 @@ async def play(ctx: discord.ApplicationContext, url: str, search_terms: str, pla
                 break
             total_bytes = download_dict.get('total_bytes', download_dict.get('total_bytes_estimate', 1))
             progress = f"{(download_dict.get('downloaded_bytes', 0) / total_bytes):.0%}" if total_bytes > 1 else "Unknown"
-            await message.edit(content=f"- Progress: {progress}\n- Time left (estimate): {timedelta(seconds=download_dict.get('eta', 0))}" +
-                                        f"\n- Elapsed time: {str(timedelta(seconds=download_dict['elapsed'])).split('.')[0]}")
+            await message.edit(content="_Downloading song_...\n" +
+                                        f"- **Progress:** {progress}\n- **Time left (estimate):** {timedelta(seconds=download_dict.get('eta', 0))}" +
+                                        f"\n- **Elapsed time:** {str(timedelta(seconds=download_dict['elapsed'])).split('.')[0]}")
             await asyncio.sleep(4)
         
         downloading_started = False
