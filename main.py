@@ -222,8 +222,10 @@ def remove_downloaded_song(current_song: dict[str, str | int | datetime | timede
     if not any(song['filename'] == filename for queue in all_songs for song in queue):
         try:
             os.remove(filename)
+            logging.info(f"Deleted {filename} successfully.")
             _download_archive.discard(current_song["archive_id"])
         except FileNotFoundError:
+            logging.error(f"Deleting {filename} failed, file was not found.")
             pass
 
 # Function is called every time a song finishes to be able to start the next one from the queue.
