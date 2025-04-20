@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import re
+import sys
 
 import discord
 from discord.channel import VocalGuildChannel
@@ -18,11 +19,19 @@ class YTDLPLogger:
     def __init__(self, guild_id: str):
         self.logger = logging.getLogger()
         self.guild_id = guild_id
+        self.download_message_interval = 10
 
     def debug(self, msg: str):
         if "has already been recorded in" in msg:
             _all_guild_download_ids.setdefault(self.guild_id, []).append(msg.split(':')[0].removeprefix("[download] ")[len("[0;32m"):-len("[0m")])
-        self.logger.info(msg.strip())
+        if "ETA" in msg:
+            if self.download_message_interval == 10:
+                self.logger.info(msg.strip())
+            elif self.download_message_interval == 0:
+                self.download_message_interval = 11
+            self.download_message_interval -= 1
+        else:
+            self.logger.info(msg.strip())
     
     def info(self, msg):
         self.logger.info(msg.strip())
@@ -105,8 +114,27 @@ async def ping(ctx: discord.ApplicationContext):
     await ctx.respond(f"Latency: {round(bot.latency * 1000)} ms")
 
 @bot.slash_command(
+    name="restart",
+    description="Restart the bot (owner only)"
+)
+@commands.is_owner()
+async def restart (ctx: discord.ApplicationContext):
+    interaction = await ctx.respond("Restarting...")
+    response = await interaction.original_response()
+    os.execv(sys.executable, ['python'] + sys.argv + [str(response.channel.id), str(response.id)])
+
+@bot.slash_command(
+    name="clear_cache",
+    description="Clear download cache (owner only)"
+)
+@commands.is_owner()
+async def clear_cache(ctx: discord.ApplicationContext):
+    _download_archive.clear()
+    await ctx.respond("Cleared download cache.")
+
+@bot.slash_command(
     name="override_limits",
-    description="Override the limits of this bot (owner only)"
+    description="Override the bot's limits (owner only)"
 )
 @option(
     "max_song_length", 
@@ -166,7 +194,7 @@ PLAYLIST_SONGS_LIMIT = 50
 _all_guild_volume_settings: dict[int, float] = {}
 _pause_after_play: dict[int, bool] = {}
 _all_guild_download_ids: dict[int, list[str]] = {}  # contains ids of all songs that were tried to be downloaded, but denied due to already being present in download_archive (refreshed after every play command)
-_download_archive: ObservableSet = ObservableSet()
+_download_archive: ObservableSet = ObservableSet(logger=logging.getLogger())
 _all_guild_active_download_markers: dict[int, bool] = {}
 _all_guild_song_queues: dict[int, list[dict[str, str | int | datetime | timedelta]]] = {}
 _all_guild_added_songs: dict[int, dict[str, str | int | datetime | timedelta]] = {}
@@ -320,12 +348,17 @@ async def volume(ctx: discord.ApplicationContext, value: int):
     
     # apply volume to playing songs
     if ctx.voice_client:
-        if ctx.voice_client.is_playing():
-            passed_time = datetime.now() - _all_guild_song_queues[ctx.guild_id][0]["starting_time"]
-            _all_guild_song_queues[ctx.guild_id][0]["passed_time"] = passed_time
-        elif ctx.voice_client.is_paused():
-            _all_guild_song_queues[ctx.guild_id][0]["passed_time"] = _all_guild_song_queues[ctx.guild_id][0]["passed_time_until_pause"]
-            _pause_after_play[ctx.guild_id] = True
+        try:
+            if ctx.voice_client.is_playing():
+                passed_time = datetime.now() - _all_guild_song_queues[ctx.guild_id][0]["starting_time"]
+                _all_guild_song_queues[ctx.guild_id][0]["passed_time"] = passed_time
+            elif ctx.voice_client.is_paused():
+                _all_guild_song_queues[ctx.guild_id][0]["passed_time"] = _all_guild_song_queues[ctx.guild_id][0]["passed_time_until_pause"]
+                _pause_after_play[ctx.guild_id] = True
+        except KeyError as e:
+            ctx.respond("Couldn't apply new volume to current song. New volume will be applied to the next song in queue.")
+            logging.error(f"Failed to apply volume to current song: {e}")
+            return
         
         if is_active(ctx):
             loops = _all_guild_loop_settings.get(ctx.guild_id, 0)
@@ -612,6 +645,7 @@ async def play(ctx: discord.ApplicationContext, url: str, search_terms: str, pla
         try:
             add_to_queue.append(find_dict_by_id(all_songs, id)[0])
         except IndexError:
+            logging.error(f'Tried to add {id} to the queue, but couldn\'t find it in the list.')
             pass
     
     del _all_guild_download_ids[guild_id]
@@ -806,6 +840,12 @@ async def on_ready():
         pass
     
     logging.info(f'Logged in as {bot.user}')
+    
+    # Called after bot was restarted via command
+    if (len(sys.argv) > 2):
+        channel = await bot.fetch_channel(sys.argv[1])
+        msg = await channel.fetch_message(sys.argv[2])
+        await msg.edit(content="Restart has finished, I'm back!")
 
 
 bot.run(config.DISCORD_TOKEN)
