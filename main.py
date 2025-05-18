@@ -389,7 +389,7 @@ async def volume(ctx: discord.ApplicationContext, value: int):
 
 @bot.slash_command(
     name="stop_download",
-    description="Stops downloading a playlist (does not stop the current song being downloaded)"
+    description="Stop downloading the playlist (does not stop the current song being downloaded)"
 )
 @commands.guild_only()
 async def stop_downloading(ctx: discord.ApplicationContext):
@@ -398,7 +398,7 @@ async def stop_downloading(ctx: discord.ApplicationContext):
         return
     
     global _stop_downloading_interaction
-    _stop_downloading_interaction = await ctx.respond(f"Trying to stop the download of remaining songs  {bot.get_emoji(1373455971296346153)}")
+    _stop_downloading_interaction = await ctx.respond(f"Trying to stop the download of remaining songs  <a:loading:1373455971296346153>")
     
     counter = 0
     while counter < 5:
@@ -514,7 +514,6 @@ async def play(ctx: discord.ApplicationContext, url: str, search_terms: str, pla
         else:
             await cast(discord.ApplicationContext, message).edit(content="Started downloading!")
         
-        loading_indicator = bot.get_emoji(1373455971296346153)
         while True:
             await asyncio.sleep(1)
             if download_dict['status'] == 'finished':
@@ -528,7 +527,7 @@ async def play(ctx: discord.ApplicationContext, url: str, search_terms: str, pla
             else:
                 eta = str(timedelta(seconds=eta))
                 
-            await cast(discord.ApplicationContext, message).edit(content=f"_Downloading song_  {loading_indicator}\n" +
+            await cast(discord.ApplicationContext, message).edit(content=f"_Downloading song_  <a:loading:1373455971296346153>\n" +
                                         f"- **Progress:** {progress}\n- **Time left (estimate):** {eta}" +
                                         f"\n- **Elapsed time:** {str(timedelta(seconds=download_dict['elapsed'])).split('.')[0]}")
             await asyncio.sleep(1)
@@ -548,7 +547,7 @@ async def play(ctx: discord.ApplicationContext, url: str, search_terms: str, pla
         
         message = followup_message or ctx
         
-        await message.edit(content=f"Download has finished, finalizing  {bot.get_emoji(1373455971296346153)}")
+        await message.edit(content=f"Download has finished, finalizing  <a:loading:1373455971296346153>")
         
         while True:
             await asyncio.sleep(1)
