@@ -5,6 +5,7 @@ import logging
 import os
 import re
 import sys
+from typing import NotRequired, TypedDict, Union, cast
 
 import discord
 from discord.channel import VocalGuildChannel
@@ -16,19 +17,19 @@ import config
 from observable_set import ObservableSet
 
 class YTDLPLogger:
-    def __init__(self, guild_id: str):
+    def __init__(self, guild_id: int):
         self.logger = logging.getLogger()
         self.guild_id = guild_id
-        self.download_message_interval = 10
+        self.download_message_interval = 15
 
     def debug(self, msg: str):
         if "has already been recorded in" in msg:
             _all_guild_download_ids.setdefault(self.guild_id, []).append(msg.split(':')[0].removeprefix("[download] ")[len("[0;32m"):-len("[0m")])
         if "ETA" in msg:
-            if self.download_message_interval == 10:
+            if self.download_message_interval == 15:
                 self.logger.info(msg.strip())
             elif self.download_message_interval == 0:
-                self.download_message_interval = 11
+                self.download_message_interval = 16
             self.download_message_interval -= 1
         else:
             self.logger.info(msg.strip())
@@ -49,6 +50,18 @@ logging.basicConfig(level=logging.INFO, format='[%(asctime)s] [%(levelname)s]: %
     logging.FileHandler('babshoven.log'),
     logging.StreamHandler()
 ])
+
+class Song(TypedDict):
+    archive_id: str
+    id: str
+    filename: str
+    title: str
+    song_link: str
+    duration_string: str
+    duration: int
+    starting_time: NotRequired[datetime]
+    passed_time: NotRequired[timedelta]
+    passed_time_until_pause: NotRequired[timedelta]
 
 bot = commands.Bot(owner_id=191530044491956224)
 
@@ -81,7 +94,7 @@ def cleanup(guild_id: int):
     _all_guild_loop_settings.pop(guild_id, None)
 
 
-def find_dict_by_id(to_search_in: list[dict[str, str | int | datetime | timedelta]], id: str):
+def find_dict_by_id(to_search_in: list[Song], id: str):
     filtered_list = [d for d in to_search_in if bool(d)]  # if there are empty dicts in list (error handling purposes), filter those out
     return [d for d in filtered_list if d["id"] == id]
 
@@ -93,12 +106,12 @@ async def disconnect_countdown(channel: VocalGuildChannel):
         await asyncio.sleep(10)
 
     if countdown == 0:
-        vc = list(filter(lambda vc: channel.guild.id == vc.guild.id, bot.voice_clients))
-        if len(vc) == 0:
+        vcs = list(filter(lambda vc: channel.guild.id == cast(discord.Guild, vc.guild).id, cast(list[discord.VoiceClient], bot.voice_clients)))
+        if len(vcs) == 0:
             logging.info("I tried to leave, but I already was disconnected earlier.")
             return
         logging.info("Left the voice channel after feeling lonely.")
-        vc: discord.VoiceClient = vc[0]
+        vc: discord.VoiceClient = vcs[0]
         cleanup(channel.guild.id)
         if vc.is_playing() or vc.is_paused():
             vc.stop()
@@ -120,7 +133,7 @@ async def ping(ctx: discord.ApplicationContext):
 @commands.is_owner()
 async def restart (ctx: discord.ApplicationContext):
     interaction = await ctx.respond("Restarting...")
-    response = await interaction.original_response()
+    response = await cast(discord.Interaction, interaction).original_response()
     os.execv(sys.executable, ['python'] + sys.argv + [str(response.channel.id), str(response.id)])
 
 @bot.slash_command(
@@ -164,7 +177,7 @@ async def override_limits(ctx: discord.ApplicationContext, max_song_length: int,
         await ctx.respond(f"Changed maximum number of songs per playlist from {PLAYLIST_SONGS_LIMIT} to {playlist_limit}!")
         PLAYLIST_SONGS_LIMIT = playlist_limit
     
-    for option in play.options:
+    for option in cast(discord.SlashCommand, play).options:
         if option.name == 'playlist_limit':
             option.description = option.description.rsplit(' ', 1)[0] + " " + str(PLAYLIST_SONGS_LIMIT)
             option.max_value = PLAYLIST_SONGS_LIMIT
@@ -196,10 +209,10 @@ _pause_after_play: dict[int, bool] = {}
 _all_guild_download_ids: dict[int, list[str]] = {}  # contains ids of all songs that were tried to be downloaded, but denied due to already being present in download_archive (refreshed after every play command)
 _download_archive: ObservableSet = ObservableSet(logger=logging.getLogger())
 _all_guild_active_download_markers: dict[int, bool] = {}
-_all_guild_song_queues: dict[int, list[dict[str, str | int | datetime | timedelta]]] = {}
-_all_guild_added_songs: dict[int, dict[str, str | int | datetime | timedelta]] = {}
+_all_guild_song_queues: dict[int, list[Song]] = {}
+_all_guild_added_songs: dict[int, Song] = {}
 _all_guild_loop_settings: dict[int, int] = {}  # (guild_id: -n | 0 | +n) -> -n: loop infinite, otherwise +n times
-_stop_downloading_interaction: discord.Interaction | discord.WebhookMessage = None
+_stop_downloading_interaction: discord.Interaction | discord.WebhookMessage | None = None
 
 
 def is_active(ctx: discord.ApplicationContext):
@@ -214,14 +227,15 @@ def current_song_info(ctx: discord.ApplicationContext):
         return ""
     loops = _all_guild_loop_settings.get(ctx.guild_id, 0)
     
-    if not current_song:
+    if not current_song or not ctx.voice_client:
         return ""
 
     if ctx.voice_client.is_playing():
-        runtime = str(datetime.now() - current_song["starting_time"]).split('.')[0]
+        now = datetime.now()
+        runtime = str(now - current_song.get("starting_time", now)).split('.')[0]
     elif ctx.voice_client.is_paused():
         response += "# [Playback is paused]\n"
-        runtime = str(current_song["passed_time_until_pause"]).split('.')[0]
+        runtime = str(current_song.get("passed_time_until_pause", timedelta(0))).split('.')[0]
     else:
         runtime = "0:00:00"
     
@@ -240,7 +254,7 @@ def current_song_info(ctx: discord.ApplicationContext):
     
 
 # Delete the last played song if it's not in any song queue anymore; current_song must have been removed from the current guild queue beforehand.
-def remove_downloaded_song(current_song: dict[str, str | int | datetime | timedelta]):
+def remove_downloaded_song(current_song: Song | None):
     if not current_song:
         return
 
@@ -287,6 +301,11 @@ async def play_next(ctx: discord.ApplicationContext):
                 pass
         
         return asyncio.run_coroutine_threadsafe(play_next(ctx), bot.loop)
+    
+    if not ctx.voice_client:
+        logging.error("Error while trying to start playback, no voice_client was found.")
+        cleanup(guild_id)
+        return
     
     try:
         ctx.voice_client.play(source, after=song_has_ended)
@@ -350,10 +369,11 @@ async def volume(ctx: discord.ApplicationContext, value: int):
     if ctx.voice_client:
         try:
             if ctx.voice_client.is_playing():
-                passed_time = datetime.now() - _all_guild_song_queues[ctx.guild_id][0]["starting_time"]
+                now = datetime.now()
+                passed_time = now - _all_guild_song_queues[ctx.guild_id][0].get("starting_time", now)
                 _all_guild_song_queues[ctx.guild_id][0]["passed_time"] = passed_time
             elif ctx.voice_client.is_paused():
-                _all_guild_song_queues[ctx.guild_id][0]["passed_time"] = _all_guild_song_queues[ctx.guild_id][0]["passed_time_until_pause"]
+                _all_guild_song_queues[ctx.guild_id][0]["passed_time"] = _all_guild_song_queues[ctx.guild_id][0].get("passed_time_until_pause", timedelta(0))
                 _pause_after_play[ctx.guild_id] = True
         except KeyError as e:
             ctx.respond("Couldn't apply new volume to current song. New volume will be applied to the next song in queue.")
@@ -369,7 +389,7 @@ async def volume(ctx: discord.ApplicationContext, value: int):
 
 @bot.slash_command(
     name="stop_download",
-    description="Stop the downloading process"
+    description="Stops downloading a playlist (does not stop the current song being downloaded)"
 )
 @commands.guild_only()
 async def stop_downloading(ctx: discord.ApplicationContext):
@@ -378,15 +398,18 @@ async def stop_downloading(ctx: discord.ApplicationContext):
         return
     
     global _stop_downloading_interaction
-    _stop_downloading_interaction = await ctx.respond("Trying to stop the download of remaining songs...")
+    _stop_downloading_interaction = await ctx.respond(f"Trying to stop the download of remaining songs  {bot.get_emoji(1373455971296346153)}")
     
-    counter, pattern = 0, [1, 2, 3]
-    while True:
+    counter = 0
+    while counter < 5:
         await asyncio.sleep(1)
         if not _stop_downloading_interaction:
             break
-        await ctx.edit(content=f"Trying to stop the download of remaining songs{'.' * pattern[counter % 3]}")
         counter += 1
+    
+    # if the download hasn't stopped after 5s, the download probably finished too soon
+    if counter == 5:
+        await ctx.edit(content="Couldn't stop the download.")
     
 
 @bot.slash_command(
@@ -414,12 +437,18 @@ async def stop_downloading(ctx: discord.ApplicationContext):
 @commands.guild_only()
 async def play(ctx: discord.ApplicationContext, url: str, search_terms: str, playlist_limit: int):
     playlist_limit = playlist_limit or PLAYLIST_SONGS_LIMIT
-    guild_id = ctx.guild_id
+    guild_id: int = ctx.guild_id
     counter_for_added_songs = 0
     responded = False  # set to true for ctx.respond's that do not return immediately after
     silent_mode = False  # whether to respond with updates, is turned on when re-downloading songs in a playlist
     
-    _all_guild_added_songs[guild_id] = {}
+    _all_guild_added_songs[guild_id] = {'archive_id': "",
+                                        'id': "",
+                                        'filename': "",
+                                        'title': "",
+                                        'song_link': "",
+                                        'duration_string': "",
+                                        'duration': 0}
     
     def add_archive_id(element: str):
         _all_guild_added_songs[guild_id]["archive_id"] = element
@@ -432,10 +461,10 @@ async def play(ctx: discord.ApplicationContext, url: str, search_terms: str, pla
         await ctx.respond("Don't use both parameters at the same time.", ephemeral=True)
         return
 
-    if ctx.author.voice:
-        channel = ctx.author.voice.channel
+    if cast(discord.Member, ctx.author).voice:
+        channel = cast(discord.VoiceState, cast(discord.Member, ctx.author).voice).channel
         if ctx.voice_client and ctx.voice_client.is_connected():
-            if channel != ctx.voice_client.channel:
+            if channel and channel != ctx.voice_client.channel:
                 if url or search_terms or is_active(ctx):
                     await ctx.voice_client.move_to(channel)
                     if not (url or search_terms):
@@ -444,7 +473,7 @@ async def play(ctx: discord.ApplicationContext, url: str, search_terms: str, pla
         else:
             if url or search_terms:
                 try:
-                    await channel.connect(timeout=2)
+                    await cast(Union[discord.VoiceChannel, discord.StageChannel], channel).connect(timeout=2)
                 except asyncio.TimeoutError as e:
                     logging.error(f"An error occured while connecting to the voice channel: {e}")
                     await ctx.respond("I couldn't join your voice channel. Please check my permissions and try again.")
@@ -457,7 +486,7 @@ async def play(ctx: discord.ApplicationContext, url: str, search_terms: str, pla
     if not url and not search_terms:
         if ctx.voice_client and ctx.voice_client.is_paused():
             ctx.voice_client.resume()
-            _all_guild_song_queues[guild_id][0]["starting_time"] = datetime.now() - _all_guild_song_queues[guild_id][0]["passed_time_until_pause"]
+            _all_guild_song_queues[guild_id][0]["starting_time"] = datetime.now() - _all_guild_song_queues[guild_id][0].get("passed_time_until_pause", timedelta(0))
             await ctx.respond("Playback resumed.")
         else:
             await ctx.respond("No audio is currently paused.", ephemeral=True)
@@ -478,23 +507,31 @@ async def play(ctx: discord.ApplicationContext, url: str, search_terms: str, pla
         message = followup_message or ctx
         
         if isinstance(followup_message, discord.WebhookMessage):
-            await message.edit(content="Started downloading the next song!")
+            await cast(discord.ApplicationContext, message).edit(content="Started downloading the next song!")
         elif followup_message:
             followup_message = await ctx.send_followup("Started downloading the next song!", wait=True)
             message = followup_message
         else:
-            await message.edit(content="Started downloading!")
+            await cast(discord.ApplicationContext, message).edit(content="Started downloading!")
         
+        loading_indicator = bot.get_emoji(1373455971296346153)
         while True:
             await asyncio.sleep(1)
             if download_dict['status'] == 'finished':
                 break
+            
             total_bytes = download_dict.get('total_bytes', download_dict.get('total_bytes_estimate', 1))
             progress = f"{(download_dict.get('downloaded_bytes', 0) / total_bytes):.0%}" if total_bytes > 1 else "Unknown"
-            await message.edit(content="_Downloading song_...\n" +
-                                        f"- **Progress:** {progress}\n- **Time left (estimate):** {timedelta(seconds=download_dict.get('eta', 0))}" +
+            eta = download_dict.get('eta', 0)
+            if eta > 0 and not cast(float, eta).is_integer():
+                eta = str(timedelta(seconds=eta))[:-3]
+            else:
+                eta = str(timedelta(seconds=eta))
+                
+            await cast(discord.ApplicationContext, message).edit(content=f"_Downloading song_  {loading_indicator}\n" +
+                                        f"- **Progress:** {progress}\n- **Time left (estimate):** {eta}" +
                                         f"\n- **Elapsed time:** {str(timedelta(seconds=download_dict['elapsed'])).split('.')[0]}")
-            await asyncio.sleep(4)
+            await asyncio.sleep(1)
         
         downloading_started = False
 
@@ -511,15 +548,12 @@ async def play(ctx: discord.ApplicationContext, url: str, search_terms: str, pla
         
         message = followup_message or ctx
         
-        await message.edit(content="Download has finished, finalizing...")
+        await message.edit(content=f"Download has finished, finalizing  {bot.get_emoji(1373455971296346153)}")
         
-        counter, pattern = 0, [1, 2, 3]
         while True:
             await asyncio.sleep(1)
             if processing_dict['status'] == 'finished' and processing_dict['postprocessor'] == 'MoveFiles':
                 break
-            await message.edit(content=f"Download has finished, finalizing{'.' * pattern[counter % 3]}")
-            counter += 1
         processing_started = False
         
         if followup_message:  # Don't print song info if we're at index >= 2 of playlist
@@ -569,21 +603,20 @@ async def play(ctx: discord.ApplicationContext, url: str, search_terms: str, pla
             if not info_dict:  # should never happen, but you can't be too careful
                 return
             
-            filename = ydl.prepare_filename(info_dict)
+            filename = cast(str, cast(yt_dlp.YoutubeDL, ydl).prepare_filename(info_dict))
             mp3_filename = filename.rsplit('.', 1)[0] + '.mp3'
 
             if not os.path.isfile(mp3_filename):
                 os.rename(filename, mp3_filename)
 
-            _all_guild_added_songs[guild_id] = {
-                'archive_id': "",
-                'id': info_dict.get("id"),
-                'filename': mp3_filename,
-                'title': info_dict.get('title'),
-                'song_link': info_dict.get('webpage_url'),
-                'duration_string': info_dict.get('duration_string'),
-                'duration': info_dict.get('duration')
-            }
+            _all_guild_added_songs[guild_id] = {'archive_id': "",
+                                                'id': cast(str, info_dict.get('id', "")),
+                                                'filename': mp3_filename,
+                                                'title': cast(str, info_dict.get('title', "")),
+                                                'song_link': cast(str, info_dict.get('webpage_url', "")),
+                                                'duration_string': cast(str, info_dict.get('duration_string', "")),
+                                                'duration': cast(int, info_dict.get('duration', 0))}
+            
             _all_guild_song_queues[guild_id].append(_all_guild_added_songs[guild_id])
             counter_for_added_songs += 1
             if not is_active(ctx):
@@ -633,7 +666,7 @@ async def play(ctx: discord.ApplicationContext, url: str, search_terms: str, pla
     except yt_dlp.utils.DownloadCancelled:
         message = _stop_downloading_interaction
         _stop_downloading_interaction = None
-        await message.edit(content="Stopped downloading the remaining song(s)!")
+        await cast(Union[discord.Interaction, discord.WebhookMessage], message).edit(content="Stopped downloading the remaining song(s)!")
         was_cancelled = True
     finally:
         _all_guild_active_download_markers[guild_id] = False
@@ -666,12 +699,12 @@ async def play(ctx: discord.ApplicationContext, url: str, search_terms: str, pla
                 continue
     
     if was_cancelled or (info_dict and (playlist_count := info_dict.get('playlist_count', 0)) > 1):
-        response = (f"Finished downloading the playlist. {counter_for_added_songs}{"" if was_cancelled else (f" / {playlist_count}")} " +
+        response = (f"Finished downloading the playlist. {counter_for_added_songs}{"" if was_cancelled else (f" / {playlist_count}")} " + # type: ignore
                     "songs were added to the queue.")
-        if not was_cancelled and counter_for_added_songs < playlist_count and counter_for_added_songs < playlist_limit:
+        if not was_cancelled and counter_for_added_songs < playlist_count and counter_for_added_songs < playlist_limit: # type: ignore
             response += f"\n\nAn error occurred. Make sure that no song is longer than **{SONG_MAX_LENGTH_MINUTES} minutes or age-restricted**, and try again."
         if isinstance(followup_message, discord.WebhookMessage):  # responded to its initial message earlier in the download process, edit the response
-            await followup_message.edit(content=response)
+            await cast(discord.WebhookMessage, followup_message).edit(content=response)
         else:
             await ctx.respond(response)
         return
@@ -778,6 +811,11 @@ async def clear_queue(ctx: discord.ApplicationContext):
         return
     
     cleanup(ctx.guild_id)
+    
+    if not ctx.voice_client:
+        logging.error("Error when clearing queue, no voice_client was found.")
+        await ctx.respond("Something went wrong.")
+        return
     ctx.voice_client.stop()
     
     await ctx.respond("Stopped playback and cleared the queue.")
@@ -790,6 +828,11 @@ async def clear_queue(ctx: discord.ApplicationContext):
 async def skip(ctx: discord.ApplicationContext):
     if is_active(ctx):
         _all_guild_loop_settings[ctx.guild_id] = 0
+        
+        if not ctx.voice_client:
+            logging.error("Error when skipping song, no voice_client was found.")
+            await ctx.respond("Something went wrong.")
+            return
         ctx.voice_client.stop()
         await ctx.respond("Song skipped.")
     else:
@@ -803,7 +846,8 @@ async def skip(ctx: discord.ApplicationContext):
 async def pause(ctx: discord.ApplicationContext):
     if ctx.voice_client and ctx.voice_client.is_playing():
         ctx.voice_client.pause()
-        _all_guild_song_queues[ctx.guild_id][0]["passed_time_until_pause"] = datetime.now() - _all_guild_song_queues[ctx.guild_id][0]["starting_time"]
+        now = datetime.now()
+        _all_guild_song_queues[ctx.guild_id][0]["passed_time_until_pause"] = now - _all_guild_song_queues[ctx.guild_id][0].get("starting_time", now)
         await ctx.respond("Playback paused.")
     else:
         await ctx.respond("No audio is currently playing.", ephemeral=True)
@@ -812,7 +856,7 @@ async def pause(ctx: discord.ApplicationContext):
 ############################ RUN BOT #############################
 ##################################################################
 
-@bot.listen
+@bot.listen # type: ignore
 async def on_voice_state_update(member: discord.Member, before: discord.VoiceState, after: discord.VoiceState):
     if after.channel:
         if member == bot.user:
@@ -820,7 +864,7 @@ async def on_voice_state_update(member: discord.Member, before: discord.VoiceSta
             return
     
     if not after.channel and member == bot.user:
-        guild_id = before.channel.guild.id
+        guild_id = cast(Union[discord.VoiceChannel, discord.StageChannel], before.channel).guild.id
         cleanup(guild_id)
         return
     
@@ -843,8 +887,8 @@ async def on_ready():
     
     # Called after bot was restarted via command
     if (len(sys.argv) > 2):
-        channel = await bot.fetch_channel(sys.argv[1])
-        msg = await channel.fetch_message(sys.argv[2])
+        channel = bot.get_channel(int(sys.argv[1]))
+        msg = await cast(discord.TextChannel, channel).fetch_message(int(sys.argv[2]))
         await msg.edit(content="Restart has finished, I'm back!")
 
 
