@@ -14,4 +14,4 @@ Install ffmpeg, current directory is the virtual environment folder (e. g. /venv
 - `rm -r ffmpeg-master-latest-linux64-gpl/`
 
 Set up POT provider
-- `docker run --name bgutil-provider -d -p 4416:4416 brainicism/bgutil-ytdlp-pot-provider`
+- `docker run --restart=always --name bgutil-provider -d -p 4416:4416 brainicism/bgutil-ytdlp-pot-provider`
