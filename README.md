@@ -8,8 +8,9 @@ Install ffmpeg, current directory is the virtual environment folder (e. g. /venv
 - `tar xf ffmpeg-master-latest-linux64-gpl.tar.xz`
 - `rm ffmpeg-master-latest-linux64-gpl.tar.xz`
 - `cd ffmpeg-master-latest-linux64-gpl/`
-- `mv * ../`
+- `mv * ../` (might throw error, ignore)
 - `mv bin/* ../bin/`
+- `cd ..`
 - `rm -r ffmpeg-master-latest-linux64-gpl/`
 
 Set up POT provider
