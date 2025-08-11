@@ -1,15 +1,16 @@
 import asyncio
-from datetime import datetime, timedelta
+from datetime import datetime, time, timedelta
 import json
 import logging
 import os
 import re
 import sys
 from typing import NotRequired, TypedDict, Union, cast
+from zoneinfo import ZoneInfo
 
 import discord
 from discord.channel import VocalGuildChannel
-from discord.ext import commands
+from discord.ext import commands, tasks
 from discord import option
 import psutil
 import yt_dlp
@@ -65,14 +66,14 @@ class Song(TypedDict):
     passed_time_until_pause: NotRequired[timedelta]
 
 bot = commands.Bot(owner_id=191530044491956224)
-MEMORY_CHANNEL_ID = 1403711339355963443
-MEMORY_INTERVAL = 60 * 60 * 6
 
 ##################################################################
 ############################ GENERAL #############################
 ##################################################################
 
 DISCONNECTION_COUNTDOWN: int = 300  # seconds until disconnect while inactive and lonely
+MEMORY_CHANNEL_ID = 1403711339355963443
+MEMORY_INTERVAL_HOURS = 6  # must be 0 < h <= 24
 
 _all_guild_current_voice_channel_ids: dict[int, int] = {}
 
@@ -121,16 +122,17 @@ async def disconnect_countdown(channel: VocalGuildChannel):
         await vc.disconnect()
 
 
-async def memory_reporter():
-    await bot.wait_until_ready()
-    channel = bot.get_channel(MEMORY_CHANNEL_ID)
-    process = psutil.Process(os.getpid())
-    while not bot.is_closed():
-        mem_mb = process.memory_info().rss / 1024 / 1024
-        total_mb = psutil.virtual_memory().total / 1024 / 1024
-        cpu_percent = process.cpu_percent(interval=None)
-        await cast(discord.TextChannel, channel).send(f"🖥 Memory: {mem_mb:.2f} MB / {total_mb:.0f} MB | CPU: {cpu_percent:.1f}%")
-        await asyncio.sleep(MEMORY_INTERVAL)
+@tasks.loop(
+    time=tuple(
+        time(hour=(i * MEMORY_INTERVAL_HOURS) % 24, tzinfo=ZoneInfo("Europe/Berlin"))
+        for i in range(24 // MEMORY_INTERVAL_HOURS)
+    )
+)
+async def memory_reporter(channel: discord.TextChannel, process: psutil.Process):
+    mem_mb = process.memory_info().rss / 1024 / 1024
+    total_mb = psutil.virtual_memory().total / 1024 / 1024
+    cpu_percent = process.cpu_percent(interval=None)
+    await channel.send(f"🖥 Memory: {mem_mb:.2f} MB / {total_mb:.0f} MB | CPU: {cpu_percent:.1f}%")
 
 ##################################################################
 
@@ -898,7 +900,8 @@ async def on_ready():
         pass
     
     logging.info(f'Logged in as {bot.user}')
-    bot.loop.create_task(memory_reporter())
+    
+    memory_reporter.start(bot.get_channel(MEMORY_CHANNEL_ID), psutil.Process(os.getpid()))
     
     # Called after bot was restarted via command
     if (len(sys.argv) > 2):
