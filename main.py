@@ -663,7 +663,7 @@ async def play(ctx: discord.ApplicationContext, url: str, search_terms: str, pla
             'preferredquality': '192',
         }],
         'progress_hooks': [download_hooks],
-        #'verbose': True,
+        'verbose': True,
         #'ratelimit': 250000,
     }
     
@@ -714,7 +714,10 @@ async def play(ctx: discord.ApplicationContext, url: str, search_terms: str, pla
                 logging.error(f"Download of song failed: {e}")
                 continue
     
-    if was_cancelled or (info_dict and (playlist_count := info_dict.get('playlist_count', 0)) > 1):
+    playlist_count = 0
+    if info_dict:
+        playlist_count = info_dict.get('playlist_count') or len(info_dict.get('entries', []))
+    if was_cancelled or playlist_count > 1:
         response = (f"Finished downloading the playlist. {counter_for_added_songs}{"" if was_cancelled else (f" / {playlist_count}")} " + # type: ignore
                     "songs were added to the queue.")
         if not was_cancelled and counter_for_added_songs < playlist_count and counter_for_added_songs < playlist_limit: # type: ignore
