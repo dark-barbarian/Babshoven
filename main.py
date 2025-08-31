@@ -663,7 +663,7 @@ async def play(ctx: discord.ApplicationContext, url: str, search_terms: str, pla
             'preferredquality': '192',
         }],
         'progress_hooks': [download_hooks],
-        'verbose': True,
+        #'verbose': True,
         #'ratelimit': 250000,
     }
     
