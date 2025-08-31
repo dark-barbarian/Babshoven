@@ -16,3 +16,6 @@ Install ffmpeg, current directory is the virtual environment folder (e. g. /venv
 Set up POT provider
 - `docker run --restart=always --name bgutil-provider -d -p 4416:4416 --init brainicism/bgutil-ytdlp-pot-provider`
 (and possibly check for updates: https://hub.docker.com/r/brainicism/bgutil-ytdlp-pot-provider/tags)
+- `docker pull brainicism/bgutil-ytdlp-pot-provider`
+- `docker stop bgutil-provider`
+- `docker rm bgutil-provider`
