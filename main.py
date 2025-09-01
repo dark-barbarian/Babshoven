@@ -72,7 +72,7 @@ bot = commands.Bot(owner_id=191530044491956224)
 ##################################################################
 
 DISCONNECTION_COUNTDOWN: int = 300  # seconds until disconnect while inactive and lonely
-MEMORY_CHANNEL_ID = 1403711339355963443
+BOT_REPORTS_CHANNEL_ID = 1403711339355963443
 MEMORY_INTERVAL_HOURS = 6  # must be 0 < h <= 24
 
 _all_guild_current_voice_channel_ids: dict[int, int] = {}
@@ -904,7 +904,10 @@ async def on_ready():
     
     logging.info(f'Logged in as {bot.user}')
     
-    memory_reporter.start(bot.get_channel(MEMORY_CHANNEL_ID), psutil.Process(os.getpid()))
+    memory_reporter.start(bot.get_channel(BOT_REPORTS_CHANNEL_ID), psutil.Process(os.getpid()))
+
+    await bot.wait_until_ready()
+    await cast(discord.TextChannel, bot.get_channel(BOT_REPORTS_CHANNEL_ID)).send(":arrows_counterclockwise: Finished restarting!")
     
     # Called after bot was restarted via command
     if (len(sys.argv) > 2):
