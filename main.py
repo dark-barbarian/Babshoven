@@ -73,7 +73,7 @@ bot = commands.Bot(owner_id=191530044491956224)
 
 DISCONNECTION_COUNTDOWN: int = 300  # seconds until disconnect while inactive and lonely
 BOT_REPORTS_CHANNEL_ID = 1403711339355963443
-MEMORY_INTERVAL_HOURS = 6  # must be 0 < h <= 24
+MEMORY_INTERVAL_HOURS = 12  # must be 0 < h <= 24
 
 _all_guild_current_voice_channel_ids: dict[int, int] = {}
 
