@@ -5,6 +5,8 @@ import logging
 import os
 import re
 import sys
+import threading
+import time as t
 from typing import NotRequired, TypedDict, Union, cast
 from zoneinfo import ZoneInfo
 
@@ -66,6 +68,7 @@ class Song(TypedDict):
     passed_time_until_pause: NotRequired[timedelta]
 
 bot = commands.Bot(owner_id=191530044491956224)
+watchdog_last_tick = t.time()
 
 ##################################################################
 ############################ GENERAL #############################
@@ -133,6 +136,19 @@ async def memory_reporter(channel: discord.TextChannel, process: psutil.Process)
     total_mb = psutil.virtual_memory().total / 1024 / 1024
     cpu_percent = process.cpu_percent(interval=None)
     await channel.send(f"🖥 Memory: {mem_mb:.2f} MB / {total_mb:.0f} MB | CPU: {cpu_percent:.1f}%")
+
+
+@tasks.loop(seconds=5)
+async def watchdog_ticker():
+    global watchdog_last_tick
+    watchdog_last_tick = t.time()
+
+def watchdog(interval=5, timeout=15):
+    while True:
+        t.sleep(interval)
+        if t.time() - watchdog_last_tick > timeout:
+            logging.error("Bot appears frozen, killing the process...")
+            os._exit(1)
 
 ##################################################################
 
@@ -905,6 +921,9 @@ async def on_ready():
     logging.info(f'Logged in as {bot.user}')
     
     memory_reporter.start(bot.get_channel(BOT_REPORTS_CHANNEL_ID), psutil.Process(os.getpid()))
+    
+    watchdog_ticker.start()
+    threading.Thread(target=watchdog, daemon=True).start()
 
     await bot.wait_until_ready()
     await cast(discord.TextChannel, bot.get_channel(BOT_REPORTS_CHANNEL_ID)).send(":arrows_counterclockwise: Finished restarting!")
@@ -916,4 +935,8 @@ async def on_ready():
         await msg.edit(content="Restart has finished, I'm back!")
 
 
-bot.run(config.DISCORD_TOKEN)
+try:
+    bot.run(config.DISCORD_TOKEN)
+except Exception:
+    logging.exception('Fatal error in outer run loop!')
+    sys.exit(1)
