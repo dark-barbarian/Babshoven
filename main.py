@@ -506,11 +506,16 @@ async def play(ctx: discord.ApplicationContext, url: str, search_terms: str, pla
         else:
             if url or search_terms:
                 try:
-                    await cast(Union[discord.VoiceChannel, discord.StageChannel], channel).connect(timeout=2)
+                    await cast(Union[discord.VoiceChannel, discord.StageChannel], channel).connect(timeout=2, reconnect=False)
                 except asyncio.TimeoutError as e:
                     logging.error(f"An error occured while connecting to the voice channel: {e}")
                     await ctx.respond("I couldn't join your voice channel. Please check my permissions and try again.")
-                    return                    
+                    return
+                except Exception as e:
+                    logging.error(f"An error occured while connecting to the voice channel: {e}")
+                    await ctx.respond("Something went wrong. I might not be fully connected to the voice channel." +
+                                      " Please kick or restart me if necesssary and try again.")
+                    return
                 
     else:
         await ctx.respond("You are not in a voice channel!", ephemeral=True)
