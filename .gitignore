@@ -1,7 +1,8 @@
 /__pycache__
-/config.py
 /downloads
 /venv
 babshoven.log
 info_dict.json
 volumesettings.json
+.vscode/launch.json
+.github/copilot-instructions.md
