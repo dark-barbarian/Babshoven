@@ -22,6 +22,7 @@ exec python "$BASE_DIR/main.py"
 DISCORD_TOKEN=xxx
 ```
 `sudo chmod 600 /etc/Babshoven.env`
+
 `sudo chown root:root /etc/Babshoven.env`
 
 ---
