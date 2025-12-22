@@ -17,7 +17,6 @@ from discord import option
 import psutil
 import yt_dlp
 
-import config
 from observable_set import ObservableSet
 
 class YTDLPLogger:
