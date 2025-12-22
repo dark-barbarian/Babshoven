@@ -16,6 +16,16 @@ exec python "$BASE_DIR/main.py"
 
 ---
 
+## Environment File  
+`sudo nano /etc/Babshoven.env`
+```ini
+DISCORD_TOKEN=xxx
+```
+`sudo chmod 600 /etc/Babshoven.env`
+`sudo chown root:root /etc/Babshoven.env`
+
+---
+
 ## Service File  
 `sudo nano /etc/systemd/system/discordbot@.service`
 ```ini
@@ -27,10 +37,11 @@ After=network.target
 Type=simple
 User=botuser
 WorkingDirectory=/home/botuser/DiscordBots/%i
+Environment=PYTHONUNBUFFERED=1
+EnvironmentFile=/etc/%i.env
 ExecStart=/home/botuser/DiscordBots/start_bot.sh %i
 Restart=always
 RestartSec=5
-Environment=PYTHONUNBUFFERED=1
 MemoryAccounting=true
 CPUAccounting=true
 
