@@ -940,7 +940,13 @@ async def on_ready():
 
 
 try:
-    bot.run(config.DISCORD_TOKEN)
+    
+if __name__ == "__main__":
+    token = os.environ.get("DISCORD_TOKEN")
+    if not token:
+        logging.error("DISCORD_TOKEN environment variable is not set. Exiting.")
+        sys.exit(1)
+    bot.run(token)
 except Exception:
     logging.exception('Fatal error in outer run loop!')
     sys.exit(1)
