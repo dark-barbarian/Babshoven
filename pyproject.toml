@@ -20,3 +20,6 @@ ignore = [
 	"D213",  # ignore multi-line summary second line (incompatible with D212)
 	"D401",  # ignore docstring should be in imperative mood
 ]
+
+[tool.black]
+line-length = 120
