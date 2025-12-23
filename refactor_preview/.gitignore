@@ -1,6 +1,0 @@
-config.py
-volumesettings.json
-*.pyc
-__pycache__/
-downloads/
-.babshoven.log

@@ -1,36 +1,52 @@
-"""A small ObservableSet used by the bot to track download archive state.
-
-This file is a lightly modernized copy for preview: added type hints
-and small docstrings. Behavior intentionally preserved.
-"""
-
 from __future__ import annotations
 
 import logging
-from typing import Callable, Optional
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 
 class ObservableSet(set):
     """A set that logs removals and can invoke a callback on additions.
 
     Parameters
+    ----------
     - logger: a logging.Logger-like object used for info messages.
     - callback: optional callable invoked with the added element.
+
     """
 
     def __init__(
         self,
-        *args,
-        logger: logging.Logger = logging.getLogger(),
-        callback: Optional[Callable[[str], None]] = None,
-        **kwargs,
-    ):
+        *args: object,
+        logger: logging.Logger | None = None,
+        callback: Callable[[str], None] | None = None,
+        **kwargs: object,
+    ) -> None:
+        """Initialize the ObservableSet with an optional logger and callback.
+
+        Parameters
+        ----------
+        logger : logging.Logger | None
+            A logging.Logger instance used for info messages. If None, a default logger is created.
+        callback : Callable[[str], None] | None
+            Optional callable invoked when new elements are added.
+        *args : object
+            Arguments passed to the base set initializer.
+        **kwargs : object
+            Keyword arguments passed to the base set initializer.
+
+        """
         super().__init__(*args, **kwargs)
-        self._logger = logger
+        self._logger = logger if logger is not None else logging.getLogger(__name__)
         self._callback = callback
 
     def set_callback(
-        self, callback: Callable[[str], None], overwrite: bool = False
+        self,
+        callback: Callable[[str], None],
+        *,
+        overwrite: bool = False,
     ) -> None:
         """Set the callback invoked when new elements are added.
 
@@ -45,19 +61,22 @@ class ObservableSet(set):
             self._callback(element)
 
     def add(self, element: str) -> None:
+        """Add an element to the set and trigger the callback if it's new."""
         if element not in self:
             super().add(element)
             self._trigger_callback(element)
 
     def discard(self, element: str) -> None:
+        """Remove an element from the set and log the action."""
         if element in self:
-            self._logger.info(f'Removed "{element}" from ObservableSet.')
+            self._logger.info('Removed "%s" from ObservableSet.', element)
         else:
             self._logger.info(
-                f'"{element}" has already been removed from ObservableSet.'
+                '"%s" has already been removed from ObservableSet.', element
             )
         return super().discard(element)
 
     def clear(self) -> None:
-        self._logger.info(f"Cleared {len(self)} element(s) from ObservableSet.")
+        """Clear all elements from the set and log the action."""
+        self._logger.info("Cleared %d element(s) from ObservableSet.", len(self))
         return super().clear()

@@ -1,7 +1,5 @@
 - `pip install -U "py-cord[voice]"`
-- `pip install -U yt-dlp`
-- `pip install -U bgutil-ytdlp-pot-provider`
-- `pip install psutil`
+- `pip install -U "yt-dlp[default]"`
 
 Install ffmpeg, current directory is the virtual environment folder (e. g. /venv/)
 - `wget "https://github.com/yt-dlp/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linux64-gpl.tar.xz"`
@@ -19,3 +17,6 @@ Set up POT provider
 - `docker pull brainicism/bgutil-ytdlp-pot-provider`
 - `docker stop bgutil-provider`
 - `docker rm bgutil-provider`
+
+Install deno for yt-dlp
+- `curl -fsSL https://deno.land/install.sh | sh`
