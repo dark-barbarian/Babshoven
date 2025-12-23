@@ -71,9 +71,7 @@ class ObservableSet(set):
         if element in self:
             self._logger.info('Removed "%s" from ObservableSet.', element)
         else:
-            self._logger.info(
-                '"%s" has already been removed from ObservableSet.', element
-            )
+            self._logger.info('"%s" has already been removed from ObservableSet.', element)
         return super().discard(element)
 
     def clear(self) -> None:
