@@ -1,0 +1,34 @@
+[tool.ruff]
+line-length = 120
+
+target-version = "py312"
+
+exclude = [
+	".git",
+	"__pycache__",
+	"venv",
+	"downloads"
+]
+
+
+[tool.ruff.lint]
+select = ["ALL"]
+
+ignore = [
+	"B008",  # default logger in argument default; acceptable here for simple logging
+	"SIM102",  # nested if simplification; prefer current clarity
+	"SIM108",  # ternary suggestion; readability is fine as-is
+	"COM812",  # prefer lean multi-line literals without trailing commas
+	"DTZ005",  # allow timezone-naive datetime usage
+	"D100",  # ignore missing docstring in public module
+	"D203",  # ignore blank line before class docstring (incompatible with D211)
+	"D213",  # ignore multi-line summary second line (incompatible with D212)
+	"D401",  # ignore docstring should be in imperative mood
+	"TD002",
+	"TD003",
+	"FIX002"
+]
+
+
+[tool.black]
+line-length = 120
