@@ -560,8 +560,8 @@ async def stop_downloading(ctx: discord.ApplicationContext) -> None:
     name="play",
     description="Add a YouTube video to the queue or resume paused playback (if all parameters are left empty)",
 )
-@option("url", description="Link to the YouTube video", required=False)
-@option("search_terms", description="Search for a YouTube video", required=False)
+@option("url", description="Link to the YouTube video", required=False, input_type=str)
+@option("search_terms", description="Search for a YouTube video", required=False, input_type=str)
 @option(
     "playlist_limit",
     description=f"Don't load more than <...> songs for this playlist, default is {bot_state.playlist_songs_limit}",
@@ -1112,6 +1112,10 @@ async def on_ready() -> None:
     except (OSError, json.JSONDecodeError):
         logger.exception("Error upon reading %s", VOLUME_SETTINGS_FILE_PATH)
 
+    for file in Path("downloads/").glob("*"):
+        file.unlink(missing_ok=True)
+        logger.info("Deleted leftover file %s successfully.", file)
+
     logger.info("Logged in as %s", bot.user)
 
     memory_reporter.start(bot.get_channel(BOT_REPORTS_CHANNEL_ID), psutil.Process(os.getpid()))
@@ -1141,3 +1145,6 @@ if __name__ == "__main__":
     except Exception:
         logger.exception("Fatal error in outer run loop!")
         sys.exit(1)
+
+# TODO: main in einzelteile aufteilen; neuen command der erlaubt dass auch andere user commands wie restart
+# ausfuehren koennen, eine möglichkeit userids zu übergeben

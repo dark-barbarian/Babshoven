@@ -24,6 +24,9 @@ ignore = [
 	"D203",  # ignore blank line before class docstring (incompatible with D211)
 	"D213",  # ignore multi-line summary second line (incompatible with D212)
 	"D401",  # ignore docstring should be in imperative mood
+	"TD002",
+	"TD003",
+	"FIX002"
 ]
 
 
