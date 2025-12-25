@@ -1,5 +1,7 @@
 ## Start bot script
-`nano /home/botuser/DiscordBots/start_bot.sh`
+```bash
+nano /home/botuser/DiscordBots/start_bot.sh
+```
 ```bash
 #!/bin/bash
 
@@ -12,12 +14,30 @@ source "$BASE_DIR/venv/bin/activate"
 # Run the bot
 exec python "$BASE_DIR/main.py"
 ```
-`chmod +x /home/botuser/DiscordBots/start_bot.sh`
+```bash
+chmod +x /home/botuser/DiscordBots/start_bot.sh
+```
+
+---
+
+## Environment File  
+```bash
+nano /etc/Babshoven.env
+```
+```ini
+DISCORD_TOKEN=xxx
+```
+```bash
+chmod 600 /etc/Babshoven.env
+chown root:root /etc/Babshoven.env
+```
 
 ---
 
 ## Service File  
-`sudo nano /etc/systemd/system/discordbot@.service`
+```bash
+nano /etc/systemd/system/discordbot@.service
+```
 ```ini
 [Unit]
 Description=Discord Bot - %i
@@ -27,10 +47,11 @@ After=network.target
 Type=simple
 User=botuser
 WorkingDirectory=/home/botuser/DiscordBots/%i
+Environment=PYTHONUNBUFFERED=1
+EnvironmentFile=/etc/%i.env
 ExecStart=/home/botuser/DiscordBots/start_bot.sh %i
 Restart=always
 RestartSec=5
-Environment=PYTHONUNBUFFERED=1
 MemoryAccounting=true
 CPUAccounting=true
 
@@ -42,16 +63,15 @@ WantedBy=multi-user.target
 
 ## Enable & Start Service
 ```bash
-sudo systemctl daemon-reload
-sudo systemctl enable discordbot@Babshoven
-sudo systemctl start discordbot@Babshoven
+systemctl daemon-reload
+systemctl enable --now discordbot@Babshoven
 ```
 
 ---
 
 ## Check Status & Logs
 ```bash
-sudo systemctl status discordbot@Babshoven
+systemctl status discordbot@Babshoven
 journalctl -u discordbot@Babshoven -f
 journalctl -u discordbot@Babshoven -n 50 --no-pager
 ```
@@ -60,9 +80,9 @@ journalctl -u discordbot@Babshoven -n 50 --no-pager
 
 ## Restart & Stop
 ```bash
-sudo systemctl restart discordbot@Babshoven
-sudo systemctl stop discordbot@Babshoven
-sudo systemctl disable discordbot@Babshoven
+systemctl restart discordbot@Babshoven
+systemctl stop discordbot@Babshoven
+systemctl disable discordbot@Babshoven
 ```
 
 ---
