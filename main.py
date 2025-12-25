@@ -80,13 +80,14 @@ logger = logging.getLogger(__name__)
 BOT_OWNER_ID = 191530044491956224
 BOT_REPORTS_CHANNEL_ID = 1403711339355963443
 LOADING_EMOJI_ID = 1373455971296346153
-VOLUME_SETTINGS_FILE_PATH = "volumesettings.json"
+VOLUME_SETTINGS_FILE_PATH = "./persistent/volumesettings.json"
 DEFAULT_BOT_VOLUME = 0.2
 
 
 # Timing and magic value constants
 DISCONNECTION_COUNTDOWN_SECONDS = 300
 MEMORY_INTERVAL_HOURS = 12  # must be 0 < h <= 24
+RESTART_ARGS_MIN = 3  # require at least [script, channel_id, message_id]
 WATCHDOG_CHECK_INTERVAL = 5
 WATCHDOG_TIMEOUT = 15
 DOWNLOAD_MESSAGE_INTERVAL = 15
@@ -799,7 +800,7 @@ async def play(  # noqa: C901, PLR0911, PLR0912, PLR0915, TODO: refactor this fu
             if not is_active(ctx):
                 bot.loop.create_task(play_next(ctx))
 
-    def download_control(info: dict, *, incomplete: bool) -> str | None:  # noqa: ARG001
+    def download_control(info: dict, *, _incomplete: bool) -> str | None:
         """Filter function for yt_dlp to skip songs that are too long or if a stop is requested."""
         duration = info.get("duration")
         if duration and duration > bot_state.song_max_length_minutes * 60:
@@ -834,7 +835,7 @@ async def play(  # noqa: C901, PLR0911, PLR0912, PLR0915, TODO: refactor this fu
     def download_songs(_url: str | None = None) -> object:
         """Download or extract song info using yt_dlp with the current options."""
         nonlocal ydl
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:  # type: ignore  # noqa: PGH003
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:  # type: ignore[arg-type]
             return ydl.extract_info(_url or f"ytsearch:{search_terms}")
 
     info_dict = None
@@ -1129,7 +1130,7 @@ async def on_ready() -> None:
     )
 
     # Called after bot was restarted via command
-    if len(sys.argv) > 2:  # noqa: PLR2004
+    if len(sys.argv) >= RESTART_ARGS_MIN:
         channel = bot.get_channel(int(sys.argv[1]))
         msg = await cast("discord.TextChannel", channel).fetch_message(int(sys.argv[2]))
         await msg.edit(content="Restart has finished, I'm back!")
