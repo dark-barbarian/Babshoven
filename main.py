@@ -572,13 +572,14 @@ async def stop_downloading(ctx: discord.ApplicationContext) -> None:
     max_value=bot_state.playlist_songs_limit,
 )
 @commands.guild_only()
-async def play(  # noqa: C901, PLR0911, PLR0912, PLR0915, TODO: refactor this function
+async def play(  # noqa: C901, PLR0911, PLR0912, PLR0915
     ctx: discord.ApplicationContext,
     url: str | None = None,
     search_terms: str | None = None,
     playlist_limit: int | None = None,
 ) -> None:
     """Download and play music."""
+    # TODO: refactor this function into smaller parts
     playlist_limit = playlist_limit or bot_state.playlist_songs_limit
     guild_id = ctx.guild_id
     if guild_id is None:

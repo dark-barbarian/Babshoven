@@ -21,5 +21,8 @@
 ## Install deno for yt-dlp
 - `curl -fsSL https://deno.land/install.sh | sh`
 
+## After installing pre-commit via pip
+- `pre-commit install` (run once)
+
 ## Run pre-commit hooks manually
 - `pre-commit run --all-files`
