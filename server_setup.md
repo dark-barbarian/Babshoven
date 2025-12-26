@@ -34,16 +34,6 @@ chown root:root /etc/Babshoven.env
 
 ---
 
-## Environment File  
-`sudo nano /etc/Babshoven.env`
-```ini
-DISCORD_TOKEN=xxx
-```
-`sudo chmod 600 /etc/Babshoven.env`
-
-`sudo chown root:root /etc/Babshoven.env`
-
----
 
 ## Service File  
 ```bash
