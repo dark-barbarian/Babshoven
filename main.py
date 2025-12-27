@@ -801,11 +801,11 @@ async def play(  # noqa: C901, PLR0911, PLR0912, PLR0915
             if not is_active(ctx):
                 bot.loop.create_task(play_next(ctx))
 
-    def download_control(info: dict, *, _incomplete: bool) -> str | None:
+    def download_control(info_dict: dict, *, _: bool) -> str | None:
         """Filter function for yt_dlp to skip songs that are too long or if a stop is requested."""
-        duration = info.get("duration")
+        duration = info_dict.get("duration")
         if duration and duration > bot_state.song_max_length_minutes * 60:
-            return f"'{info.get('title')}' is too long"
+            return f"'{info_dict.get('title')}' is too long"
         if bot_state.stop_downloading_interaction:
             cancel_msg = "Stop the downloads!"
             raise yt_dlp.utils.DownloadCancelled(cancel_msg)
@@ -816,7 +816,7 @@ async def play(  # noqa: C901, PLR0911, PLR0912, PLR0915
         "format": "bestaudio/best",
         "ignoreerrors": True,
         "logger": YTDLPLogger(guild_id),
-        "match_filter": download_control,
+        "match_filter": lambda info_dict, incomplete: download_control(info_dict, _=incomplete),
         "noplaylist": bool(search_terms),
         "paths": {"home": "downloads/"},
         "playlist_items": str(list(range(playlist_limit + 1))).replace(" ", "")[1:-1],
