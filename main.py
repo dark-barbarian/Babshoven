@@ -834,7 +834,7 @@ async def play(  # noqa: C901, PLR0911, PLR0912, PLR0915
         #'ratelimit': 250000,  # noqa: ERA001
     }
 
-    def download_songs(_url: str | None = None) -> object:
+    def download_songs(_url: str | None = url) -> object:
         """Download or extract song info using yt_dlp with the current options."""
         nonlocal ydl
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:  # type: ignore[arg-type]
