@@ -829,6 +829,7 @@ async def play(  # noqa: C901, PLR0911, PLR0912, PLR0915
             }
         ],
         "progress_hooks": [download_hooks],
+        "js_runtimes": {"deno": {"path": os.environ.get("DENO_PATH", "deno")}},
         #'verbose': True,  # noqa: ERA001
         #'ratelimit': 250000,  # noqa: ERA001
     }
