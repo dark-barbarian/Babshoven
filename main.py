@@ -391,6 +391,9 @@ def remove_downloaded_song(current_song: Song | None) -> None:
         try:
             Path(filename).unlink()
             logger.info("Deleted %s successfully.", filename)
+            # TODO: debug purposes, find out what causes the bug of an empty song trying to be removed
+            logger.info("DEBUG: Current song being removed: %s", current_song)
+            logger.info("DEBUG: Current download archive before removal: %s", bot_state.download_archive)
             bot_state.download_archive.discard(current_song["archive_id"])
         except FileNotFoundError:
             logger.exception("Deleting %s failed, file was not found.", filename)
@@ -928,7 +931,8 @@ async def play(  # noqa: C901, PLR0911, PLR0912, PLR0915
             return
         await ctx.respond(
             "There were errors downloading your song(s). Please try again, and make sure that no song is longer "
-            f"than **{bot_state.song_max_length_minutes} minutes or age-restricted**."
+            f"than **{bot_state.song_max_length_minutes} minutes or age-restricted**. "
+            "Consider clearing the download cache."
         )
 
 
