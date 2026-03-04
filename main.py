@@ -1159,3 +1159,4 @@ if __name__ == "__main__":
 # wenn der bot stuck ist und der watchdog ihn killt, schauen, ob man n feedback senden kann. entweder neue nachricht im letzten channel oder sogar aktuelle nachricht bearbeiten, die auf "thinking" steht (auch für den utils bot)
 # einbauen, dass man vorskippen kann
 # spotify playlist: metadaten aus link auslesen, dann aus yt zusammensuchen
+# manchmal update sich die restart nachricht nicht. mehr logging einbauen, um rauszufinden, warum
