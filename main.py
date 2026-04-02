@@ -16,10 +16,11 @@ from zoneinfo import ZoneInfo
 
 import anyio
 import discord
+import discord.voice
 import psutil
 import yt_dlp
 import yt_dlp.utils
-from discord import option
+from discord import PCMVolumeTransformer, option
 from discord.ext import commands, tasks
 
 from observable_set import ObservableSet
@@ -93,9 +94,9 @@ WATCHDOG_TIMEOUT = 15
 DOWNLOAD_MESSAGE_INTERVAL = 15
 STOP_DOWNLOAD_TIMEOUT_SECONDS = 5
 PROCESSING_TIMEOUT_SECONDS = 5
-YOUTUBE_CONNECT_TIMEOUT_SECONDS = 2
-SONG_DURATION_ONE_MINUTE = 60
-SONG_DURATION_ONE_HOUR = 60 * 60
+VOICE_CHANNEL_CONNECT_TIMEOUT_SECONDS = 5
+ONE_MINUTE = 60
+ONE_HOUR = 60 * 60
 
 
 class YTDLPLogger:
@@ -199,14 +200,14 @@ async def disconnect_countdown(channel: VocalGuildChannel) -> None:
         vcs = list(
             filter(
                 lambda vc: channel.guild.id == cast("discord.Guild", vc.guild).id,
-                cast("list[discord.VoiceClient]", bot.voice_clients),
+                cast("list[discord.voice.VoiceClient]", bot.voice_clients),
             )
         )
         if len(vcs) == 0:
             logger.info("I tried to leave, but I already was disconnected earlier.")
             return
         logger.info("Left the voice channel after feeling lonely.")
-        vc: discord.VoiceClient = vcs[0]
+        vc: discord.voice.VoiceClient = vcs[0]
         cleanup(channel.guild.id)
         if vc.is_playing() or vc.is_paused():
             vc.stop()
@@ -363,9 +364,9 @@ def current_song_info(ctx: discord.ApplicationContext) -> str:
         runtime = "0:00:00"
 
     duration_string = current_song["duration_string"]
-    if current_song["duration"] < SONG_DURATION_ONE_MINUTE:
+    if current_song["duration"] < ONE_MINUTE:
         duration_string = "0:" + duration_string.zfill(2)
-    if current_song["duration"] < SONG_DURATION_ONE_HOUR:
+    if current_song["duration"] < ONE_HOUR:
         runtime = runtime.removeprefix("0:").removeprefix("0")
 
     title = current_song["title"]
@@ -415,11 +416,13 @@ async def play_next(ctx: discord.ApplicationContext) -> None:  # noqa: C901
     passed_time = bot_state.per_guild_song_queues[guild_id][0].get("passed_time", timedelta(seconds=0))
     bot_state.per_guild_song_queues[guild_id][0]["starting_time"] = datetime.now() - passed_time
 
-    source = await discord.FFmpegOpusAudio.from_probe(
-        bot_state.per_guild_song_queues[guild_id][0]["filename"],
-        method="fallback",
-        before_options=f"-ss {passed_time!s}",
-        options=f"-af 'volume={volume}'",
+    source = PCMVolumeTransformer(
+        discord.FFmpegPCMAudio(
+            bot_state.per_guild_song_queues[guild_id][0]["filename"],
+            before_options=f"-ss {passed_time!s}",
+            options="-vn",
+        ),
+        volume=volume,
     )
 
     bot_state.per_guild_song_queues[guild_id][0]["passed_time"] = timedelta(
@@ -623,8 +626,12 @@ async def play(  # noqa: C901, PLR0911, PLR0912, PLR0915
                         await ctx.respond("Continuing playback in your new voice channel!")
                         return
         elif url or search_terms:
+            await ctx.defer()
             try:
-                await cast("discord.VoiceChannel | discord.StageChannel", channel).connect(timeout=2, reconnect=False)
+                await cast("discord.VoiceChannel | discord.StageChannel", channel).connect(
+                    timeout=VOICE_CHANNEL_CONNECT_TIMEOUT_SECONDS,
+                    reconnect=False,
+                )
             except TimeoutError:
                 logger.exception("An error occured while connecting to the voice channel.")
                 await ctx.respond("I couldn't join your voice channel. Please check my permissions and try again.")
@@ -658,7 +665,8 @@ async def play(  # noqa: C901, PLR0911, PLR0912, PLR0915
         await ctx.respond("Currently, only YouTube is supported.", ephemeral=True)
         return
 
-    await ctx.defer()
+    with contextlib.suppress(discord.errors.InteractionResponded):
+        await ctx.defer()
 
     download_dict, processing_dict = {}, {}
     downloading_started, processing_started = False, False
@@ -1008,9 +1016,9 @@ async def queue(ctx: discord.ApplicationContext) -> None:
             break
 
         duration_string = song["duration_string"]
-        if song["duration"] < SONG_DURATION_ONE_MINUTE:
+        if song["duration"] < ONE_MINUTE:
             duration_string = "0:" + duration_string.zfill(2)
-        if song["duration"] < SONG_DURATION_ONE_HOUR:
+        if song["duration"] < ONE_HOUR:
             placeholder = "0:00"
         else:
             placeholder = "0:00:00"
@@ -1156,7 +1164,8 @@ if __name__ == "__main__":
 # TODO: main in einzelteile aufteilen; neuen command der erlaubt dass auch andere user commands wie restart
 # ausfuehren koennen, eine möglichkeit userids zu übergeben
 # inverstigate why archive_id is empty ([2026-01-02 21:31:54,341]) -> fallback auf id?
-# wenn der bot stuck ist und der watchdog ihn killt, schauen, ob man n feedback senden kann. entweder neue nachricht im letzten channel oder sogar aktuelle nachricht bearbeiten, die auf "thinking" steht (auch für den utils bot)
+# wenn der bot stuck ist und der watchdog ihn killt, schauen, ob man n feedback senden kann. entweder neue nachricht im
+# letzten channel oder sogar aktuelle nachricht bearbeiten, die auf "thinking" steht (auch für den utils bot)
 # einbauen, dass man vorskippen kann
 # spotify playlist: metadaten aus link auslesen, dann aus yt zusammensuchen
 # manchmal update sich die restart nachricht nicht. mehr logging einbauen, um rauszufinden, warum
