@@ -443,6 +443,9 @@ async def play_next(ctx: discord.ApplicationContext) -> None:  # noqa: C901
 
     if not ctx.voice_client:
         logger.error("Error while trying to start playback, no voice_client was found.")
+        await cast("discord.TextChannel", ctx.channel).send(
+            "An error occurred while trying to play the next song, clearing song queue."
+        )
         cleanup(guild_id)
         return
 
@@ -450,6 +453,9 @@ async def play_next(ctx: discord.ApplicationContext) -> None:  # noqa: C901
         ctx.voice_client.play(source, after=song_has_ended)
     except discord.errors.ClientException:
         logger.exception("Error while trying to start playback.")
+        await cast("discord.TextChannel", ctx.channel).send(
+            "An error occurred while trying to play the next song, clearing song queue."
+        )
         cleanup(guild_id)
         if is_active(ctx):
             ctx.voice_client.stop()
