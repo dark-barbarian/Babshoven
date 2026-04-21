@@ -1175,3 +1175,4 @@ if __name__ == "__main__":
 # einbauen, dass man vorskippen kann
 # spotify playlist: metadaten aus link auslesen, dann aus yt zusammensuchen
 # manchmal update sich die restart nachricht nicht. mehr logging einbauen, um rauszufinden, warum
+# manchmal leavt bot nicht, logging einbauen wenn leute leaven/joinen und countdown checken
