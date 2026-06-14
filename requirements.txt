@@ -29,7 +29,7 @@ platformdirs==4.5.1
 pre_commit==4.5.1
 propcache==0.4.1
 psutil==7.0.0
-py-cord==2.8.0rc1
+py-cord==2.8.0rc2
 pycparser==3.0
 pycryptodomex==3.23.0
 PyNaCl==1.6.2
@@ -42,5 +42,5 @@ urllib3==2.6.2
 virtualenv==20.35.4
 websockets==15.0.1
 yarl==1.23.0
-yt-dlp==2026.3.17
+yt-dlp==2026.6.9
 yt-dlp-ejs==0.8.0
