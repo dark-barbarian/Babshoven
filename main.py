@@ -94,7 +94,8 @@ WATCHDOG_TIMEOUT = 15
 DOWNLOAD_MESSAGE_INTERVAL = 15
 STOP_DOWNLOAD_TIMEOUT_SECONDS = 5
 PROCESSING_TIMEOUT_SECONDS = 5
-VOICE_CHANNEL_CONNECT_TIMEOUT_SECONDS = 5
+VOICE_CHANNEL_CONNECT_TIMEOUT_SECONDS = 20
+DOWNLOAD_SOCKET_TIMEOUT_SECONDS = 15
 ONE_MINUTE = 60
 ONE_HOUR = 60 * 60
 
@@ -640,7 +641,9 @@ async def play(  # noqa: C901, PLR0911, PLR0912, PLR0915
                 )
             except TimeoutError:
                 logger.exception("An error occured while connecting to the voice channel.")
-                await ctx.respond("I couldn't join your voice channel. Please check my permissions and try again.")
+                await ctx.respond(
+                    "I am not fully connected to the voice channel. Please check my permissions and try again."
+                )
                 return
             except Exception:
                 logger.exception("An error occured while connecting to the voice channel.")
@@ -830,23 +833,18 @@ async def play(  # noqa: C901, PLR0911, PLR0912, PLR0915
 
     ydl_opts = {
         "download_archive": bot_state.download_archive,
+        "extractor_args": {"youtube": {"player_client": ["android", "web"]}},
         "format": "bestaudio/best",
         "ignoreerrors": True,
+        "js_runtimes": {"deno": {"path": os.environ.get("DENO_PATH", "deno")}},
         "logger": YTDLPLogger(guild_id),
         "match_filter": lambda info_dict, incomplete: download_control(info_dict, _=incomplete),
         "noplaylist": bool(search_terms),
         "paths": {"home": "downloads/"},
         "playlist_items": str(list(range(playlist_limit + 1))).replace(" ", "")[1:-1],
         "postprocessor_hooks": [processing_hooks],
-        "postprocessors": [
-            {
-                "key": "FFmpegExtractAudio",
-                "preferredcodec": "mp3",
-                "preferredquality": "192",
-            }
-        ],
         "progress_hooks": [download_hooks],
-        "js_runtimes": {"deno": {"path": os.environ.get("DENO_PATH", "deno")}},
+        "socket_timeout": DOWNLOAD_SOCKET_TIMEOUT_SECONDS,
         #'verbose': True,  # noqa: ERA001
         #'ratelimit': 250000,  # noqa: ERA001
     }
