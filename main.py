@@ -504,6 +504,7 @@ async def volume(ctx: discord.ApplicationContext, value: int | None = None) -> N
     bot_state.per_guild_volume_settings[ctx.guild_id] = float(value) / 100
 
     try:
+        Path(VOLUME_SETTINGS_FILE_PATH).parent.mkdir(exist_ok=True, parents=True)
         async with await anyio.open_file(VOLUME_SETTINGS_FILE_PATH, "w") as file:
             volume_json = json.dumps(bot_state.per_guild_volume_settings, indent=4)
             await file.write(volume_json)
@@ -1174,3 +1175,4 @@ if __name__ == "__main__":
 # spotify playlist: metadaten aus link auslesen, dann aus yt zusammensuchen
 # manchmal update sich die restart nachricht nicht. mehr logging einbauen, um rauszufinden, warum
 # manchmal leavt bot nicht, logging einbauen wenn leute leaven/joinen und countdown checken
+# checken ob die persistent files vorher Path(/foo/bar.txt).parent.mkdir(exist_ok=True, parents=True) brauchen
