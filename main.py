@@ -82,6 +82,7 @@ BOT_OWNER_ID = 191530044491956224
 BOT_REPORTS_CHANNEL_ID = 1403711339355963443
 LOADING_EMOJI_ID = 1373455971296346153
 VOLUME_SETTINGS_FILE_PATH = "./persistent/volumesettings.json"
+DOWNLOADS_FOLDER_PATH = "./downloads/"
 DEFAULT_BOT_VOLUME = 0.2
 
 
@@ -504,7 +505,6 @@ async def volume(ctx: discord.ApplicationContext, value: int | None = None) -> N
     bot_state.per_guild_volume_settings[ctx.guild_id] = float(value) / 100
 
     try:
-        Path(VOLUME_SETTINGS_FILE_PATH).parent.mkdir(exist_ok=True, parents=True)
         async with await anyio.open_file(VOLUME_SETTINGS_FILE_PATH, "w") as file:
             volume_json = json.dumps(bot_state.per_guild_volume_settings, indent=4)
             await file.write(volume_json)
@@ -841,7 +841,7 @@ async def play(  # noqa: C901, PLR0911, PLR0912, PLR0915
         "logger": YTDLPLogger(guild_id),
         "match_filter": lambda info_dict, incomplete: download_control(info_dict, _=incomplete),
         "noplaylist": bool(search_terms),
-        "paths": {"home": "downloads/"},
+        "paths": {"home": DOWNLOADS_FOLDER_PATH},
         "playlist_items": str(list(range(playlist_limit + 1))).replace(" ", "")[1:-1],
         "postprocessor_hooks": [processing_hooks],
         "progress_hooks": [download_hooks],
@@ -1124,6 +1124,7 @@ async def on_voice_state_update(member: discord.Member, before: discord.VoiceSta
 async def on_ready() -> None:
     """Initialize the bot, load volume settings, and start background tasks."""
     try:
+        Path(VOLUME_SETTINGS_FILE_PATH).parent.mkdir(exist_ok=True, parents=True)
         async with await anyio.open_file(VOLUME_SETTINGS_FILE_PATH, "r") as file:
             bot_state.per_guild_volume_settings = json.loads(
                 await file.read(),
@@ -1132,7 +1133,8 @@ async def on_ready() -> None:
     except (OSError, json.JSONDecodeError):
         logger.exception("Error upon reading %s", VOLUME_SETTINGS_FILE_PATH)
 
-    for file in Path("downloads/").glob("*"):
+    Path(DOWNLOADS_FOLDER_PATH).mkdir(exist_ok=True, parents=True)
+    for file in Path(DOWNLOADS_FOLDER_PATH).glob("*"):
         file.unlink(missing_ok=True)
         logger.info("Deleted leftover file %s successfully.", file)
 
@@ -1175,4 +1177,3 @@ if __name__ == "__main__":
 # spotify playlist: metadaten aus link auslesen, dann aus yt zusammensuchen
 # manchmal update sich die restart nachricht nicht. mehr logging einbauen, um rauszufinden, warum
 # manchmal leavt bot nicht, logging einbauen wenn leute leaven/joinen und countdown checken
-# checken ob die persistent files vorher Path(/foo/bar.txt).parent.mkdir(exist_ok=True, parents=True) brauchen
