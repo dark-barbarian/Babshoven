@@ -1124,19 +1124,23 @@ async def on_voice_state_update(member: discord.Member, before: discord.VoiceSta
 async def on_ready() -> None:
     """Initialize the bot, load volume settings, and start background tasks."""
     try:
-        Path(VOLUME_SETTINGS_FILE_PATH).parent.mkdir(exist_ok=True, parents=True)
-        async with await anyio.open_file(VOLUME_SETTINGS_FILE_PATH, "r") as file:
-            bot_state.per_guild_volume_settings = json.loads(
-                await file.read(),
-                object_pairs_hook=lambda pairs: {int(k): v for k, v in pairs},
-            )
+        if Path(VOLUME_SETTINGS_FILE_PATH).exists():
+            async with await anyio.open_file(VOLUME_SETTINGS_FILE_PATH, "r") as file:
+                bot_state.per_guild_volume_settings = json.loads(
+                    await file.read(),
+                    object_pairs_hook=lambda pairs: {int(k): v for k, v in pairs},
+                )
+        else:
+            Path(VOLUME_SETTINGS_FILE_PATH).parent.mkdir(exist_ok=True, parents=True)
     except (OSError, json.JSONDecodeError):
         logger.exception("Error upon reading %s", VOLUME_SETTINGS_FILE_PATH)
 
-    Path(DOWNLOADS_FOLDER_PATH).mkdir(exist_ok=True, parents=True)
-    for file in Path(DOWNLOADS_FOLDER_PATH).glob("*"):
-        file.unlink(missing_ok=True)
-        logger.info("Deleted leftover file %s successfully.", file)
+    if Path(DOWNLOADS_FOLDER_PATH).exists():
+        for file in Path(DOWNLOADS_FOLDER_PATH).glob("*"):
+            file.unlink(missing_ok=True)
+            logger.info("Deleted leftover file %s successfully.", file)
+    else:
+        Path(DOWNLOADS_FOLDER_PATH).mkdir(exist_ok=True, parents=True)
 
     logger.info("Logged in as %s", bot.user)
 
