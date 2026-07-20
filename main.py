@@ -1194,8 +1194,7 @@ if __name__ == "__main__":
         logger.exception("Fatal error in outer run loop!")
         sys.exit(1)
 
-# TODO: main in einzelteile aufteilen; neuen command der erlaubt dass auch andere user commands wie restart
-# ausfuehren koennen, eine möglichkeit userids zu übergeben
+# TODO: main in einzelteile aufteilen
 # inverstigate why archive_id is empty ([2026-01-02 21:31:54,341]) -> fallback auf id?
 # wenn der bot stuck ist und der watchdog ihn killt, schauen, ob man n feedback senden kann. entweder neue nachricht im
 # letzten channel oder sogar aktuelle nachricht bearbeiten, die auf "thinking" steht (auch für den utils bot)
