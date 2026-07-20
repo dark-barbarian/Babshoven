@@ -11,7 +11,7 @@ import threading
 import time as _time
 from datetime import datetime, time, timedelta
 from pathlib import Path
-from typing import TYPE_CHECKING, NotRequired, TypedDict, cast
+from typing import TYPE_CHECKING, NotRequired, TypedDict, TypeVar, cast
 from zoneinfo import ZoneInfo
 
 import anyio
@@ -26,9 +26,13 @@ from discord.ext import commands, tasks
 from observable_set import ObservableSet
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from discord.channel import VocalGuildChannel
 
 __all__ = ["bot"]
+
+T = TypeVar("T")
 
 
 class BotState:
@@ -160,6 +164,22 @@ bot = commands.Bot(owner_id=BOT_OWNER_ID)
 bot_state = BotState()
 
 
+class NotOneOfTheBois(commands.CheckFailure):
+    """Custom exception raised when a command is used by someone not in the allowed list."""
+
+
+def is_one_of_the_bois() -> Callable[[T], T]:
+    """Check if the command is used by one of the bois."""
+
+    async def predicate(ctx: commands.Context) -> bool:
+        if ctx.author.id not in {181388057365315585, 373461017994330112, 580456878472167445}:
+            msg = "You can not use this command."
+            raise NotOneOfTheBois(msg)
+        return True
+
+    return commands.check(predicate)
+
+
 def create_embed(
     title: str | None = None,
     description: str | None = None,
@@ -258,7 +278,7 @@ async def ping(ctx: discord.ApplicationContext) -> None:
 
 
 @bot.slash_command(name="restart", description="Restart the bot")
-@commands.is_owner()
+@commands.check_any(commands.is_owner(), is_one_of_the_bois())  # pyright: ignore[reportArgumentType]
 async def restart(ctx: discord.ApplicationContext) -> None:
     """Restart the bot process with the same command-line arguments."""
     interaction = await ctx.respond("Restarting...")
@@ -270,7 +290,7 @@ async def restart(ctx: discord.ApplicationContext) -> None:
 
 
 @bot.slash_command(name="clear_cache", description="Clear download cache")
-@commands.is_owner()
+@commands.check_any(commands.is_owner(), is_one_of_the_bois())  # pyright: ignore[reportArgumentType]
 async def clear_cache(ctx: discord.ApplicationContext) -> None:
     """Clear the download archive cache."""
     bot_state.download_archive.clear()
@@ -332,6 +352,8 @@ async def on_application_command_error(ctx: discord.ApplicationContext, error: d
         await ctx.respond("Sorry, only the bot owner can use this command!", ephemeral=True)
     elif isinstance(error, commands.NoPrivateMessage):
         await ctx.respond("Sorry, this command can't be used in a DM!")
+    elif isinstance(error, commands.CheckAnyFailure):
+        await ctx.respond("Sorry, you can't use this command!", ephemeral=True)
     else:
         logger.error(error)
         raise error
