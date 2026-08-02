@@ -8,28 +8,18 @@ if TYPE_CHECKING:
 
 
 class ObservableSet(set):
-    """A set that logs removals and can invoke a callback on additions.
-
-    Parameters
-    ----------
-    - logger: a logging.Logger-like object used for info messages.
-    - callback: optional callable invoked with the added element.
-
-    """
+    """A set that logs removals and can invoke a callback on additions."""
 
     def __init__(
         self,
         *args: object,
-        logger: logging.Logger | None = None,
         callback: Callable[[str], None] | None = None,
         **kwargs: object,
     ) -> None:
-        """Initialize the ObservableSet with an optional logger and callback.
+        """Initialize the ObservableSet with an optional callback.
 
         Parameters
         ----------
-        logger : logging.Logger | None
-            A logging.Logger instance used for info messages. If None, a default logger is created.
         callback : Callable[[str], None] | None
             Optional callable invoked when new elements are added.
         *args : object
@@ -39,7 +29,7 @@ class ObservableSet(set):
 
         """
         super().__init__(*args, **kwargs)
-        self._logger = logger if logger is not None else logging.getLogger(__name__)
+        self._logger = logging.getLogger(__name__)
         self._callback = callback
 
     def set_callback(
@@ -66,7 +56,7 @@ class ObservableSet(set):
             super().add(element)
             self._trigger_callback(element)
 
-    def discard(self, element: str) -> None:
+    def discard(self, element: object) -> None:
         """Remove an element from the set and log the action."""
         if element in self:
             self._logger.info('Removed "%s" from ObservableSet.', element)
