@@ -77,16 +77,11 @@ class General(commands.Cog):
 
         if max_song_length:
             self.bot.song_max_length_minutes = max_song_length
-            await ctx.respond(
-                f"Changed maximum song duration from {self.bot.song_max_length_minutes} to {max_song_length}!"
-            )
+            await ctx.respond(f"Changed maximum song duration to {self.bot.song_max_length_minutes}!")
 
         if playlist_limit:
             self.bot.playlist_songs_limit = playlist_limit
-            await ctx.respond(
-                "Changed maximum number of songs per playlist from"
-                f" {self.bot.playlist_songs_limit} to {playlist_limit}!"
-            )
+            await ctx.respond(f"Changed maximum number of songs per playlist to {self.bot.playlist_songs_limit}!")
 
         self.update_playlist_limit_option(self.bot)
 

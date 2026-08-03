@@ -1,10 +1,5 @@
-from __future__ import annotations
-
 import logging
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from collections.abc import Callable
+from collections.abc import Callable
 
 
 class ObservableSet(set):
