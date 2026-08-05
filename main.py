@@ -99,13 +99,14 @@ async def on_ready() -> None:
         bot.memory_reporter.start(reports_channel, psutil.Process(os.getpid()))
         bot.exception_reporter = ExceptionReporter(bot, cast("discord.TextChannel", reports_channel))
 
+    if bot.exception_reporter:
+        bot.install_asyncio_handler(bot.exception_reporter)
+
     bot.watchdog_ticker.start()
     threading.Thread(target=bot.watchdog, daemon=True).start()
 
     await bot.wait_until_ready()
-    await cast("discord.TextChannel", bot.get_channel(BOT_REPORTS_CHANNEL_ID)).send(
-        ":arrows_counterclockwise: Finished restarting!"
-    )
+    await cast("discord.TextChannel", reports_channel).send(":arrows_counterclockwise: Finished restarting!")
 
     # Called after bot was restarted via command
     if len(sys.argv) >= RESTART_ARGS_MIN:

@@ -32,9 +32,12 @@ class YTDLPLogger:
         """Log warning messages from yt_dlp."""
         self.bot.logger.warning(msg.strip())
 
-    def error(self, msg: str) -> None:
+    async def error(self, msg: str) -> None:
         """Log error messages from yt_dlp."""
         self.bot.logger.error(msg.strip())
+
+        if self.bot.exception_reporter:
+            await self.bot.exception_reporter.report(RuntimeError(msg.strip()))
 
     def critical(self, msg: str) -> None:
         """Log critical messages from yt_dlp."""

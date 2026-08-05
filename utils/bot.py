@@ -14,12 +14,12 @@ import psutil
 from discord.channel import VocalGuildChannel
 from discord.ext import commands, tasks
 
+from utils.exception_reporter import ExceptionReporter
 from utils.observable_set import ObservableSet
 from utils.song import Song
 
 if TYPE_CHECKING:
     from cogs.songs import Songs
-    from utils.exception_reporter import ExceptionReporter
 
 
 BOT_REPORTS_CHANNEL_ID = 1403711339355963443
@@ -166,6 +166,19 @@ class Bot(commands.Bot):
             if vc.is_playing() or vc.is_paused():
                 vc.stop()
             await vc.disconnect()
+
+    def install_asyncio_handler(self, reporter: ExceptionReporter) -> None:
+        """Install a custom exception handler for the bot event loop to report exceptions."""
+
+        def handler(loop: asyncio.AbstractEventLoop, context: dict) -> None:
+            exception = context.get("exception")
+
+            if exception is None:
+                exception = RuntimeError(context["message"])
+
+            loop.create_task(reporter.report(exception, context=context.get("message")))
+
+        self.loop.set_exception_handler(handler)
 
     @tasks.loop(
         time=tuple(
