@@ -141,3 +141,5 @@ if __name__ == "__main__":
 # spotify playlist: metadaten aus link auslesen, dann aus yt zusammensuchen
 # manchmal update sich die restart nachricht nicht. mehr logging einbauen, um rauszufinden, warum
 # manchmal leavt bot nicht, logging einbauen wenn leute leaven/joinen und countdown checken
+# überlegen ob der name des songs in den status soll.
+# 9.8. gegen 20:30 wurde kein fehler an discord gesendet, nachschauen, warum
