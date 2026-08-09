@@ -1,0 +1,45 @@
+# Ruff configuration
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+exclude = [
+	".git",
+	"__pycache__",
+	"venv",
+	"downloads"
+]
+
+[tool.ruff.lint]
+select = ["ALL"]
+
+ignore = [
+	# Code simplification suggestions
+	"SIM102",  # nested if simplification; prefer current clarity
+	"SIM108",  # ternary suggestion; readability is fine as-is
+	
+	# Function/argument checks
+	"B008",  # default logger in argument default; acceptable here for simple logging
+	
+	# Formatting preferences
+	"COM812",  # prefer lean multi-line literals without trailing commas
+	
+	# Datetime handling
+	"DTZ005",  # allow timezone-naive datetime usage
+	
+	# Docstring requirements
+	"D100",  # missing docstring in public module
+	"D107",  # missing docstring in __init__ method
+	"D203",  # blank line before class docstring (incompatible with D211)
+	"D213",  # multi-line summary second line (incompatible with D212)
+	"D401",  # docstring should be in imperative mood
+	
+	# TODO/FIXME requirements
+	"TD002",  # missing author in TODO
+	"TD003",  # missing issue link in TODO
+	"FIX002",  # line contains TODO/FIXME
+]
+
+# Black configuration
+[tool.black]
+line-length = 120
