@@ -143,3 +143,4 @@ if __name__ == "__main__":
 # manchmal leavt bot nicht, logging einbauen wenn leute leaven/joinen und countdown checken
 # überlegen ob der name des songs in den status soll.
 # 9.8. gegen 20:30 wurde kein fehler an discord gesendet, nachschauen, warum
+# on_voice_state_update fixen, wenn bot gemoved wird in leeren channel, dced er nicht
