@@ -49,22 +49,25 @@ async def on_application_command_error(ctx: discord.ApplicationContext, error: d
 @bot.listen()
 async def on_voice_state_update(member: discord.Member, before: discord.VoiceState, after: discord.VoiceState) -> None:
     """Handle changes in voice state to manage disconnects and channel tracking."""
-    if after.channel:
-        if member == bot.user:
+    target_channel = before.channel
+
+    if member == bot.user:
+        if after.channel:
             bot.per_guild_voice_channel_id[after.channel.guild.id] = after.channel.id
+            target_channel = after.channel
+        else:
+            guild_id = cast("discord.VoiceChannel | discord.StageChannel", before.channel).guild.id
+            bot.cleanup(guild_id)
             return
 
-    if not after.channel and member == bot.user:
-        guild_id = cast("discord.VoiceChannel | discord.StageChannel", before.channel).guild.id
-        bot.cleanup(guild_id)
-        return
-
     if (
-        before.channel
-        and before.channel.id == bot.per_guild_voice_channel_id.get(before.channel.guild.id, None)
-        and len([member for member in before.channel.members if not member.bot]) == 0
+        target_channel
+        # is the target channel the one the bot currently is in?
+        and target_channel.id == bot.per_guild_voice_channel_id.get(target_channel.guild.id, None)
+        # are only bots left in the channel?
+        and len([member for member in target_channel.members if not member.bot]) == 0
     ):
-        bot.loop.create_task(bot.disconnect_countdown(before.channel))
+        bot.loop.create_task(bot.disconnect_countdown(target_channel))
 
 
 @bot.listen(once=True)
@@ -143,4 +146,3 @@ if __name__ == "__main__":
 # manchmal leavt bot nicht, logging einbauen wenn leute leaven/joinen und countdown checken
 # überlegen ob der name des songs in den status soll.
 # 9.8. gegen 20:30 wurde kein fehler an discord gesendet, nachschauen, warum
-# on_voice_state_update fixen, wenn bot gemoved wird in leeren channel, dced er nicht
