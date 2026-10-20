@@ -3,6 +3,7 @@ import json
 import os
 import sys
 import threading
+import time
 from pathlib import Path
 from typing import cast
 
@@ -99,12 +100,14 @@ async def on_ready() -> None:
         with contextlib.suppress(discord.errors.DiscordException):
             reports_channel = await bot.fetch_channel(BOT_REPORTS_CHANNEL_ID)
     if reports_channel is not None:
-        bot.memory_reporter.start(reports_channel, psutil.Process(os.getpid()))
         bot.exception_reporter = ExceptionReporter(bot, cast("discord.TextChannel", reports_channel))
+        await bot.report_pending_watchdog(bot.exception_reporter)
+        bot.memory_reporter.start(reports_channel, psutil.Process(os.getpid()))
 
     if bot.exception_reporter:
         bot.install_asyncio_handler(bot.exception_reporter)
 
+    bot.watchdog_last_tick = time.monotonic()
     bot.watchdog_ticker.start()
     threading.Thread(target=bot.watchdog, daemon=True).start()
 
